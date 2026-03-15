@@ -22,6 +22,7 @@ class FakeBackend:
     profiles: dict[str, dict[str, str]] = field(default_factory=dict)
     feed_items: list[dict[str, str]] = field(default_factory=list)
     followed_pairs: set[tuple[str, str]] = field(default_factory=set)
+    seen_feed_cursors: list[str | None] = field(default_factory=list)
 
     def close(self) -> None:
         self.session.close()
@@ -91,7 +92,12 @@ def fake_backend() -> FakeBackend:
             )
 
         if request.method == "GET" and request.url.path == "/v1/feed":
-            return httpx.Response(200, json={"items": state.feed_items})
+            cursor = request.url.params.get("cursor")
+            state.seen_feed_cursors.append(cursor)
+            offset = int(cursor) if cursor else 0
+            page = state.feed_items[offset : offset + 20]
+            next_cursor = str(offset + 20) if offset + 20 < len(state.feed_items) else None
+            return httpx.Response(200, json={"items": page, "next_cursor": next_cursor})
 
         if request.method == "GET" and request.url.path == "/v1/profile/me":
             account = decode_agent(request)
@@ -139,11 +145,12 @@ def test_social_loop_fetches_feed_and_writes_activity_log(
 
     assert result.followed_agents
     assert state is not None
-    assert state.feed_cursor
+    assert state.feed_cursor is None
     assert state.pending_jobs
     assert state.relationship_cache
     assert credentials.access_token == "access-rotated"
     assert credentials.refresh_token == "refresh-rotated"
+    assert fake_backend.seen_feed_cursors == [None]
     assert ("agent-1", "agent-2") in fake_backend.followed_pairs
     assert (temp_runtime_home / "profile.md").exists()
     assert (temp_runtime_home / "activity-log.md").exists()
@@ -167,3 +174,72 @@ def test_social_loop_uses_runtime_lock_for_shared_state(
 
     assert result.lock_acquired is True
     assert result.lock_released is True
+
+
+def test_social_loop_pages_feed_until_it_finds_an_unfollowed_candidate(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    fake_backend.feed_items = [
+        {
+            "post_id": f"post-{index}",
+            "agent_id": f"agent-{index + 2}",
+            "type": "intro",
+            "content_md": f"intro-{index}",
+        }
+        for index in range(21)
+    ]
+    followed_ids = {f"agent-{index + 2}": "following" for index in range(20)}
+    RuntimeStateStore(temp_runtime_home / "runtime-state.json").save(
+        RuntimeState(
+            agent_id="agent-1",
+            runtime_id="runtime-1",
+            username="loom",
+            relationship_cache=followed_ids,
+        ),
+    )
+    SecureRuntimeStorage(temp_runtime_home).save_credentials(
+        username="loom",
+        password="pw",
+        access_token="stale-access",
+        refresh_token="refresh",
+    )
+
+    result = run_social_loop(fake_backend, temp_runtime_home)
+
+    assert result.followed_agents == ["agent-22"]
+    assert ("agent-1", "agent-22") in fake_backend.followed_pairs
+    assert fake_backend.seen_feed_cursors == [None, "20"]
+
+
+def test_social_loop_resumes_from_saved_feed_cursor(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    fake_backend.feed_items = [
+        {
+            "post_id": f"post-{index}",
+            "agent_id": f"agent-{index + 2}",
+            "type": "intro",
+            "content_md": f"intro-{index}",
+        }
+        for index in range(21)
+    ]
+    RuntimeStateStore(temp_runtime_home / "runtime-state.json").save(
+        RuntimeState(
+            agent_id="agent-1",
+            runtime_id="runtime-1",
+            username="loom",
+            feed_cursor="20",
+        ),
+    )
+    SecureRuntimeStorage(temp_runtime_home).save_credentials(
+        username="loom",
+        password="pw",
+        access_token="stale-access",
+        refresh_token="refresh",
+    )
+
+    run_social_loop(fake_backend, temp_runtime_home)
+
+    assert fake_backend.seen_feed_cursors[0] == "20"

@@ -61,15 +61,10 @@ def run_social_loop(target: str | object, runtime_home: Path) -> SocialLoopResul
 
 
 def run_social_loop_once(client: LoomClawClient, state: RuntimeState) -> SocialLoopResult:
-    feed = client.list_feed()
-    candidate = pick_follow_candidate(
-        feed["items"],
-        self_agent_id=state.agent_id,
-        relationship_cache=state.relationship_cache,
-    )
+    candidate, resume_cursor = find_follow_candidate(client, state)
     client.follow(target_agent_id=candidate["agent_id"])
     enqueue_follow_job(state, candidate["agent_id"])
-    state.feed_cursor = next_feed_cursor(feed["items"], previous_cursor=state.feed_cursor)
+    state.feed_cursor = resume_cursor
     state.relationship_cache[candidate["agent_id"]] = "following"
     profile_snapshot = client.get_profile()
     return SocialLoopResult(
@@ -81,12 +76,38 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState) -> SocialL
     )
 
 
+def find_follow_candidate(client: LoomClawClient, state: RuntimeState) -> tuple[dict[str, Any], str | None]:
+    cursor = state.feed_cursor
+    can_reset_to_start = cursor is not None
+
+    while True:
+        feed = client.list_feed(cursor=cursor)
+        candidate = pick_follow_candidate(
+            feed["items"],
+            self_agent_id=state.agent_id,
+            relationship_cache=state.relationship_cache,
+        )
+        next_cursor = read_backend_feed_cursor(feed)
+        if candidate is not None:
+            return candidate, next_cursor
+        if next_cursor is None:
+            if can_reset_to_start:
+                cursor = None
+                can_reset_to_start = False
+                continue
+            break
+        cursor = next_cursor
+        can_reset_to_start = False
+
+    raise RuntimeError("no follow candidate found")
+
+
 def pick_follow_candidate(
     feed_items: list[dict[str, Any]],
     *,
     self_agent_id: str,
     relationship_cache: dict[str, str],
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     for item in feed_items:
         agent_id = str(item["agent_id"])
         if agent_id == self_agent_id:
@@ -94,17 +115,18 @@ def pick_follow_candidate(
         if relationship_cache.get(agent_id) == "following":
             continue
         return item
-    raise RuntimeError("no follow candidate found")
+    return None
 
 
 def enqueue_follow_job(state: RuntimeState, candidate_id: str) -> None:
     state.pending_jobs.append(f"follow:{candidate_id}")
 
 
-def next_feed_cursor(feed_items: list[dict[str, Any]], *, previous_cursor: str | None) -> str | None:
-    if not feed_items:
-        return previous_cursor
-    return str(feed_items[0]["post_id"])
+def read_backend_feed_cursor(feed: dict[str, Any]) -> str | None:
+    next_cursor = feed.get("next_cursor")
+    if next_cursor is None:
+        return None
+    return str(next_cursor)
 
 
 def write_profile_md(path: Path, profile: dict[str, Any]) -> None:
