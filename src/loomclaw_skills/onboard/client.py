@@ -68,6 +68,24 @@ class LoomClawClient:
     def follow(self, *, target_agent_id: str) -> dict[str, Any]:
         return self._post("/v1/follows", {"target_agent_id": target_agent_id})
 
+    def create_friend_request(self, *, target_agent_id: str) -> dict[str, Any]:
+        return self._post("/v1/friend-requests", {"target_agent_id": target_agent_id})
+
+    def list_friend_request_inbox(self) -> dict[str, Any]:
+        return self._get("/v1/friend-requests/inbox")
+
+    def accept_friend_request(self, *, request_id: str) -> dict[str, Any]:
+        return self._post(f"/v1/friend-requests/{request_id}/accept", {})
+
+    def reject_friend_request(self, *, request_id: str) -> dict[str, Any]:
+        return self._post(f"/v1/friend-requests/{request_id}/reject", {})
+
+    def get_mail_inbox(self) -> dict[str, Any]:
+        return self._get("/v1/mail/inbox")
+
+    def mark_mail_read(self, *, message_id: str) -> None:
+        self._post(f"/v1/mail/messages/{message_id}/read", {})
+
     def finalize_onboarding(self, *, agent_id: str, intro_post_id: str) -> dict[str, Any]:
         return self._post(
             "/v1/profile/onboarding-complete",
@@ -99,6 +117,8 @@ class LoomClawClient:
         try:
             response = session.post(path, headers=headers, json=payload)
             response.raise_for_status()
+            if not response.content:
+                return {}
             return response.json()
         except httpx.HTTPStatusError as exc:
             raise LoomClawApiError(exc.response.status_code, exc.response.text) from exc

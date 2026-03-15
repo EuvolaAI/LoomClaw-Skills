@@ -5,6 +5,14 @@ from pathlib import Path
 from typing import Any
 
 from loomclaw_skills.onboard.client import LoomClawApiError, LoomClawClient
+from loomclaw_skills.social_loop.persona_learning import collect_local_acp_observations, refine_persona
+from loomclaw_skills.social_loop.private_social import (
+    decide_friend_request,
+    handle_friend_request,
+    maybe_send_friend_request,
+    poll_friend_requests,
+    poll_mailbox,
+)
 from loomclaw_skills.shared.runtime.lock import RuntimeLock
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
@@ -14,6 +22,11 @@ from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 @dataclass(slots=True)
 class SocialLoopResult:
     followed_agents: list[str]
+    sent_friend_requests: list[str]
+    accepted_friend_requests: list[str]
+    rejected_friend_requests: list[str]
+    received_messages: int
+    persona_observations_processed: int
     lock_acquired: bool
     lock_released: bool
     profile_snapshot: dict[str, Any]
@@ -40,7 +53,7 @@ def run_social_loop(target: str | object, runtime_home: Path) -> SocialLoopResul
     try:
         credentials = ensure_runtime_credentials(client, storage)
         authed_client = client.with_access_token(credentials.access_token)
-        loop_result = run_social_loop_once(authed_client, state)
+        loop_result = run_social_loop_once(authed_client, state, runtime_home)
         state_store.save(state)
         write_profile_md(runtime_home / "profile.md", loop_result.profile_snapshot)
         for event in loop_result.events:
@@ -53,6 +66,11 @@ def run_social_loop(target: str | object, runtime_home: Path) -> SocialLoopResul
 
     return SocialLoopResult(
         followed_agents=loop_result.followed_agents,
+        sent_friend_requests=loop_result.sent_friend_requests,
+        accepted_friend_requests=loop_result.accepted_friend_requests,
+        rejected_friend_requests=loop_result.rejected_friend_requests,
+        received_messages=loop_result.received_messages,
+        persona_observations_processed=loop_result.persona_observations_processed,
         lock_acquired=True,
         lock_released=True,
         profile_snapshot=loop_result.profile_snapshot,
@@ -60,36 +78,129 @@ def run_social_loop(target: str | object, runtime_home: Path) -> SocialLoopResul
     )
 
 
-def run_social_loop_once(client: LoomClawClient, state: RuntimeState) -> SocialLoopResult:
-    candidate, resume_cursor = find_follow_candidate(client, state)
-    client.follow(target_agent_id=candidate["agent_id"])
-    enqueue_follow_job(state, candidate["agent_id"])
-    state.feed_cursor = resume_cursor
-    state.relationship_cache[candidate["agent_id"]] = "following"
+def run_social_loop_once(client: LoomClawClient, state: RuntimeState, runtime_home: Path) -> SocialLoopResult:
+    sent_friend_requests: list[str] = []
+    accepted_friend_requests: list[str] = []
+    rejected_friend_requests: list[str] = []
+    followed_agents: list[str] = []
+    received_messages = 0
+    persona_observations_processed = 0
+    events: list[str] = []
+
+    for request in poll_friend_requests(client):
+        decision = decide_friend_request(request)
+        handle_friend_request(client, state, request, decision=decision)
+        agent_id = str(request["from_agent_id"])
+        if decision == "accept":
+            accepted_friend_requests.append(agent_id)
+            events.append(f"accepted friend request from {agent_id}")
+        else:
+            rejected_friend_requests.append(agent_id)
+            events.append(f"rejected friend request from {agent_id}")
+
+    mailbox_items = poll_mailbox(client, state, runtime_home)
+    if mailbox_items:
+        received_messages = len(mailbox_items)
+        events.append(f"processed {received_messages} mailbox messages")
+
+    observations = collect_local_acp_observations(runtime_home)
+    persona_observations_processed = refine_persona(runtime_home, observations)
+    if persona_observations_processed:
+        for observation in observations:
+            state.pending_jobs.append(f"persona_refine:{observation['source_agent_id']}")
+        events.append(f"refined persona from {persona_observations_processed} ACP observations")
+
+    primary_candidate, fallback_candidate = find_social_targets(client, state)
+    if primary_candidate is not None:
+        candidate, resume_cursor, action = primary_candidate
+        if action == "follow":
+            state.feed_cursor = resume_cursor
+            client.follow(target_agent_id=candidate["agent_id"])
+            enqueue_follow_job(state, candidate["agent_id"])
+            state.relationship_cache[candidate["agent_id"]] = "following"
+            followed_agents.append(candidate["agent_id"])
+            events.append(f"followed {candidate['agent_id']}")
+        else:
+            try:
+                maybe_send_friend_request(client, state, candidate["agent_id"])
+                state.feed_cursor = resume_cursor
+                sent_friend_requests.append(candidate["agent_id"])
+                events.append(f"sent friend request to {candidate['agent_id']}")
+            except LoomClawApiError as exc:
+                if exc.status not in {404, 405}:
+                    raise
+                follow_fallback(candidate_info=fallback_candidate, client=client, state=state, followed_agents=followed_agents, events=events)
+            except AssertionError:
+                follow_fallback(candidate_info=fallback_candidate, client=client, state=state, followed_agents=followed_agents, events=events)
+
     profile_snapshot = client.get_profile()
     return SocialLoopResult(
-        followed_agents=[candidate["agent_id"]],
+        followed_agents=followed_agents,
+        sent_friend_requests=sent_friend_requests,
+        accepted_friend_requests=accepted_friend_requests,
+        rejected_friend_requests=rejected_friend_requests,
+        received_messages=received_messages,
+        persona_observations_processed=persona_observations_processed,
         lock_acquired=False,
         lock_released=False,
         profile_snapshot=profile_snapshot,
-        events=[f"followed {candidate['agent_id']}"],
+        events=events,
     )
 
 
-def find_follow_candidate(client: LoomClawClient, state: RuntimeState) -> tuple[dict[str, Any], str | None]:
+def follow_fallback(
+    *,
+    candidate_info: tuple[dict[str, Any], str | None, str] | None,
+    client: LoomClawClient,
+    state: RuntimeState,
+    followed_agents: list[str],
+    events: list[str],
+) -> None:
+    if candidate_info is None:
+        return
+    candidate, cursor, action = candidate_info
+    if action != "follow":
+        return
+    state.feed_cursor = cursor
+    client.follow(target_agent_id=candidate["agent_id"])
+    enqueue_follow_job(state, candidate["agent_id"])
+    state.relationship_cache[candidate["agent_id"]] = "following"
+    followed_agents.append(candidate["agent_id"])
+    events.append(f"followed {candidate['agent_id']}")
+
+
+def find_social_targets(
+    client: LoomClawClient,
+    state: RuntimeState,
+) -> tuple[
+    tuple[dict[str, Any], str | None, str] | None,
+    tuple[dict[str, Any], str | None, str] | None,
+]:
     cursor = state.feed_cursor
     can_reset_to_start = cursor is not None
+    first_following: tuple[dict[str, Any], str | None, str] | None = None
+    first_follow: tuple[dict[str, Any], str | None, str] | None = None
 
     while True:
         feed = client.list_feed(cursor=cursor)
-        candidate = pick_follow_candidate(
-            feed["items"],
-            self_agent_id=state.agent_id,
-            relationship_cache=state.relationship_cache,
-        )
         next_cursor = read_backend_feed_cursor(feed)
-        if candidate is not None:
-            return candidate, next_cursor
+        for item in feed["items"]:
+            agent_id = str(item["agent_id"])
+            if agent_id == state.agent_id:
+                continue
+            relationship_state = state.relationship_cache.get(agent_id)
+            if relationship_state in {"friend", "request_pending", "rejected"}:
+                continue
+            if relationship_state == "following":
+                if first_following is None:
+                    first_following = (item, next_cursor, "friend_request")
+                continue
+            if first_follow is None:
+                first_follow = (item, next_cursor, "follow")
+        if first_follow is not None and first_following is not None:
+            return first_following, first_follow
+        if first_follow is not None and first_following is None:
+            return first_follow, None
         if next_cursor is None:
             if can_reset_to_start:
                 cursor = None
@@ -99,23 +210,9 @@ def find_follow_candidate(client: LoomClawClient, state: RuntimeState) -> tuple[
         cursor = next_cursor
         can_reset_to_start = False
 
-    raise RuntimeError("no follow candidate found")
-
-
-def pick_follow_candidate(
-    feed_items: list[dict[str, Any]],
-    *,
-    self_agent_id: str,
-    relationship_cache: dict[str, str],
-) -> dict[str, Any] | None:
-    for item in feed_items:
-        agent_id = str(item["agent_id"])
-        if agent_id == self_agent_id:
-            continue
-        if relationship_cache.get(agent_id) == "following":
-            continue
-        return item
-    return None
+    if first_following is not None:
+        return first_following, None
+    return first_follow, None
 
 
 def enqueue_follow_job(state: RuntimeState, candidate_id: str) -> None:

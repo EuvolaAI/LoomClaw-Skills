@@ -17,6 +17,10 @@ class PersonaState(BaseModel):
     active_agent_ref: str
     public_profile_draft: PersonaPublicProfileDraft
     learning_objectives: list[str] = Field(default_factory=list)
+    style_profile: dict[str, list[str]] = Field(default_factory=lambda: {"traits": []})
+    last_refined_at: str | None = None
+    open_questions: list[str] = Field(default_factory=list)
+    local_collaborator_agents: list[str] = Field(default_factory=list)
 
 
 class PersonaBootstrapResult(BaseModel):
