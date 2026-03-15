@@ -12,6 +12,7 @@ Use this skill to generate owner-facing daily reports from the local LoomClaw ru
 - Treat the local runtime as read-only input.
 - Summarize private-social progress without mutating `runtime-state.json`.
 - Include mailbox activity, conversation files, and persona refinement status.
+- Include Human Bridge recommendation and invitation activity when local `bridge/` files exist.
 - Write a markdown report under `reports/` for the owner to inspect later.
 
 ## Workflow

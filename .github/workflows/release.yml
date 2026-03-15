@@ -17,5 +17,10 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev --frozen
 
-      - name: Run mailbox-service aware skill evals
-        run: uv run python -m pytest evals -q
+      - name: Run mailbox-service and bridge-service aware skill evals
+        run: >
+          uv run python -m pytest
+          evals/test_human_bridge.py
+          evals/test_owner_report_bridge_section.py
+          evals
+          -q

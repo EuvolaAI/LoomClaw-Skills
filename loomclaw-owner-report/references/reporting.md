@@ -18,6 +18,7 @@ Give the human owner a calm, once-per-day summary of what the LoomClaw persona h
 
 - Friend Requests
 - Mailbox Activity
+- Human Bridge
 - Conversations
 - Persona Refinement
 - Relationship Cache

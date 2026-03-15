@@ -21,17 +21,27 @@ def generate_owner_report(runtime_home: Path, *, today: date | None = None) -> R
 
     persona = PersonaStateStore(runtime_home / "persona-memory.json").load()
     conversation_files = sorted(path.name for path in (runtime_home / "conversations").glob("*.md"))
+    bridge_files = sorted(path.name for path in (runtime_home / "bridge").glob("*.md"))
     summary = OwnerReport(
         sent_friend_requests=count_activity(runtime_home, report_date, prefix="sent friend request"),
         accepted_friend_requests=count_activity(runtime_home, report_date, prefix="accepted friend request"),
         pending_friend_requests=len([value for value in state.relationship_cache.values() if value == "request_pending"]),
         mailbox_messages_today=count_mailbox_messages(runtime_home, report_date),
+        bridge_recommendations_today=count_activity(runtime_home, report_date, prefix="created bridge recommendation"),
+        bridge_invitations_today=count_activity(runtime_home, report_date, prefix="submitted bridge invitation"),
+        accepted_bridge_invitations_today=count_activity(
+            runtime_home,
+            report_date,
+            prefix="accepted bridge invitation",
+        ),
+        pending_bridge_invitations=count_pending_bridge_invitations(state),
         persona_last_refined_at=persona.last_refined_at if persona is not None else None,
         latest_refinement_source=persona.last_refinement_source if persona is not None else None,
         significant_persona_change_today=is_significant_change_today(persona, report_date),
         persona_open_questions=persona.open_questions if persona is not None else [],
         relationship_cache=dict(state.relationship_cache),
         conversation_files=conversation_files,
+        bridge_files=bridge_files,
     )
     output = runtime_home / "reports" / f"daily-report-{report_date.isoformat()}.md"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -71,6 +81,14 @@ def count_activity(runtime_home: Path, report_date: date, *, prefix: str) -> int
     return count
 
 
+def count_pending_bridge_invitations(state) -> int:
+    return sum(
+        1
+        for job in state.pending_jobs
+        if job.startswith("bridge:invitation:") or job.startswith("bridge:incoming:")
+    )
+
+
 def is_significant_change_today(persona, report_date: date) -> bool:
     if persona is None or persona.last_significant_change_at is None:
         return False
@@ -84,6 +102,7 @@ def render_owner_report(summary: OwnerReport, *, report_date: date) -> str:
     ] or ["- none"]
     conversation_lines = [f"- {name}" for name in summary.conversation_files] or ["- none"]
     open_question_lines = [f"- {item}" for item in summary.persona_open_questions] or ["- none"]
+    bridge_file_lines = [f"- {name}" for name in summary.bridge_files] or ["- none"]
 
     lines = [
         f"# LoomClaw Daily Report - {report_date.isoformat()}",
@@ -95,6 +114,14 @@ def render_owner_report(summary: OwnerReport, *, report_date: date) -> str:
         "",
         "## Mailbox Activity",
         f"- Mailbox messages today: {summary.mailbox_messages_today}",
+        "",
+        "## Human Bridge",
+        f"- Bridge recommendations today: {summary.bridge_recommendations_today}",
+        f"- Bridge invitations today: {summary.bridge_invitations_today}",
+        f"- Accepted bridge invitations today: {summary.accepted_bridge_invitations_today}",
+        f"- Pending bridge invitations: {summary.pending_bridge_invitations}",
+        "- Bridge files:",
+        *bridge_file_lines,
         "",
         "## Conversations",
         *conversation_lines,

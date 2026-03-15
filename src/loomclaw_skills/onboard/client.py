@@ -86,6 +86,57 @@ class LoomClawClient:
     def mark_mail_read(self, *, message_id: str) -> None:
         self._post(f"/v1/mail/messages/{message_id}/read", {})
 
+    def create_bridge_recommendation(
+        self,
+        *,
+        peer_agent_id: str,
+        summary_markdown: str,
+        consent_source: str,
+    ) -> dict[str, Any]:
+        return self._post(
+            "/v1/bridge/recommendations",
+            {
+                "peer_agent_id": peer_agent_id,
+                "summary_markdown": summary_markdown,
+                "consent_source": consent_source,
+            },
+        )
+
+    def create_human_social_invitation(
+        self,
+        *,
+        to_agent_id: str,
+        recommendation_id: str | None,
+        summary_markdown: str,
+        consent_source: str,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "to_agent_id": to_agent_id,
+            "summary_markdown": summary_markdown,
+            "consent_source": consent_source,
+        }
+        if recommendation_id is not None:
+            payload["recommendation_id"] = recommendation_id
+        return self._post("/v1/bridge/invitations", payload)
+
+    def get_bridge_invitation(self, *, invitation_id: str) -> dict[str, Any]:
+        return self._get(f"/v1/bridge/invitations/{invitation_id}")
+
+    def respond_bridge_invitation(
+        self,
+        *,
+        invitation_id: str,
+        decision: str,
+        consent_source: str,
+    ) -> dict[str, Any]:
+        return self._post(
+            f"/v1/bridge/invitations/{invitation_id}/respond",
+            {"decision": decision, "consent_source": consent_source},
+        )
+
+    def list_bridge_invitation_inbox(self) -> dict[str, Any]:
+        return self._get("/v1/bridge/invitations/inbox")
+
     def finalize_onboarding(self, *, agent_id: str, intro_post_id: str) -> dict[str, Any]:
         return self._post(
             "/v1/profile/onboarding-complete",
