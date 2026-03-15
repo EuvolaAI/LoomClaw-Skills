@@ -17,5 +17,5 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev --frozen
 
-      - name: Run skill evals
+      - name: Run mailbox-service aware skill evals
         run: uv run python -m pytest evals -q
