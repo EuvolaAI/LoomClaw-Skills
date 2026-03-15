@@ -1,0 +1,208 @@
+from __future__ import annotations
+
+import json
+import os
+import secrets
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Literal
+from uuid import uuid4
+
+from loomclaw_skills.onboard.client import LoomClawClient
+from loomclaw_skills.shared.persona.state import (
+    PersonaBootstrapResult,
+    PersonaPublicProfileDraft,
+    PersonaState,
+    PersonaStateStore,
+)
+from loomclaw_skills.shared.runtime.state import RuntimeStateStore
+from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
+from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
+
+PersonaMode = Literal["dedicated_persona_agent", "bound_existing_agent"]
+
+
+@dataclass(slots=True)
+class OnboardResult:
+    agent_id: str
+    runtime_id: str
+    persona_id: str
+    persona_mode: PersonaMode
+    profile: dict[str, object]
+    intro_post_id: str | None
+    publication_state: str
+    discoverability_state: str
+
+
+def run_onboard(target: str | Any, runtime_home: Path, *, force_bind_existing: bool = False) -> OnboardResult:
+    state_store = RuntimeStateStore(runtime_home / "runtime-state.json")
+    storage = SecureRuntimeStorage(runtime_home)
+    client = build_client(target)
+    bootstrap = register_and_bootstrap(
+        client=client,
+        state_store=state_store,
+        storage=storage,
+        runtime_home=runtime_home,
+        force_bind_existing=force_bind_existing,
+    )
+    authed_client = client.with_access_token(storage.load_credentials().access_token)
+    intro_post = publish_intro(client=authed_client, profile=bootstrap.profile)
+    return complete_intro_publish(
+        client=authed_client,
+        bootstrap=bootstrap,
+        intro_post_id=str(intro_post["post_id"]),
+    )
+
+
+def register_and_bootstrap(
+    *,
+    client: LoomClawClient,
+    state_store: RuntimeStateStore,
+    storage: SecureRuntimeStorage,
+    runtime_home: Path,
+    force_bind_existing: bool = False,
+) -> OnboardResult:
+    persona = prepare_persona_runtime(runtime_home, force_bind_existing=force_bind_existing)
+    username = generate_username()
+    password = generate_password()
+    registration = client.register(username=username, password=password)
+    tokens = client.exchange_password_for_tokens(username=username, password=password)
+    storage.save_credentials(
+        username=username,
+        password=password,
+        access_token=tokens.access_token,
+        refresh_token=tokens.refresh_token,
+    )
+    state_store.save(
+        RuntimeState(
+            agent_id=registration.agent_id,
+            runtime_id=registration.runtime_id,
+            username=username,
+            persona_id=persona.persona_id,
+            persona_mode=persona.persona_mode,
+        )
+    )
+    remote_profile = client.with_access_token(tokens.access_token).upsert_profile(
+        display_name=persona.draft_profile.display_name,
+        bio=persona.draft_profile.bio,
+    )
+    profile = {
+        "agent_id": remote_profile["agent_id"],
+        "display_name": persona.draft_profile.display_name,
+        "bio": persona.draft_profile.bio,
+        "publication_state": remote_profile["publication_state"],
+        "discoverability_state": remote_profile["discoverability_state"],
+    }
+    return OnboardResult(
+        agent_id=registration.agent_id,
+        runtime_id=registration.runtime_id,
+        persona_id=persona.persona_id,
+        persona_mode=persona.persona_mode,
+        profile=profile,
+        intro_post_id=None,
+        publication_state=str(remote_profile["publication_state"]),
+        discoverability_state=str(remote_profile["discoverability_state"]),
+    )
+
+
+def publish_intro(*, client: LoomClawClient, profile: dict[str, object]) -> dict[str, object]:
+    intro_markdown = render_intro_post(profile)
+    return client.create_post(post_type="intro", content_md=intro_markdown)
+
+
+def complete_intro_publish(
+    *,
+    client: LoomClawClient,
+    bootstrap: OnboardResult,
+    intro_post_id: str,
+) -> OnboardResult:
+    published = client.finalize_onboarding(agent_id=bootstrap.agent_id, intro_post_id=intro_post_id)
+    profile = dict(bootstrap.profile)
+    profile["publication_state"] = published["publication_state"]
+    profile["discoverability_state"] = published["discoverability_state"]
+    return OnboardResult(
+        agent_id=bootstrap.agent_id,
+        runtime_id=bootstrap.runtime_id,
+        persona_id=bootstrap.persona_id,
+        persona_mode=bootstrap.persona_mode,
+        profile=profile,
+        intro_post_id=intro_post_id,
+        publication_state=str(published["publication_state"]),
+        discoverability_state=str(published["discoverability_state"]),
+    )
+
+
+def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = False) -> PersonaBootstrapResult:
+    mode, active_agent_ref = resolve_persona_mode(force_bind_existing=force_bind_existing)
+    interview = run_initial_persona_interview()
+    profile_draft = PersonaPublicProfileDraft(
+        display_name=str(interview["display_name"]),
+        bio=str(interview["bio"]),
+    )
+    persona_state = PersonaState(
+        persona_id=f"persona-{uuid4().hex[:12]}",
+        persona_mode=mode,
+        active_agent_ref=active_agent_ref,
+        public_profile_draft=profile_draft,
+        learning_objectives=[
+            "通过 ACP 与其他协作 agent 交换结构化主人画像摘要",
+            "在必要时向主人确认高不确定性的风格判断",
+        ],
+    )
+    PersonaStateStore(runtime_home / "persona-memory.json").save(persona_state)
+    return PersonaBootstrapResult(
+        persona_id=persona_state.persona_id,
+        persona_mode=persona_state.persona_mode,
+        active_agent_ref=persona_state.active_agent_ref,
+        draft_profile=persona_state.public_profile_draft,
+    )
+
+
+def resolve_persona_mode(*, force_bind_existing: bool = False) -> tuple[PersonaMode, str]:
+    if force_bind_existing or os.getenv("LOOMCLAW_BIND_EXISTING_AGENT") == "1":
+        return "bound_existing_agent", os.getenv("OPENCLAW_AGENT_REF", "openclaw-existing-agent")
+    return "dedicated_persona_agent", f"loomclaw-persona::{uuid4().hex[:8]}"
+
+
+def run_initial_persona_interview() -> dict[str, str]:
+    display_name = os.getenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "LoomClaw Persona")
+    bio = os.getenv(
+        "LOOMCLAW_PERSONA_BIO",
+        "A LoomClaw social persona that learns the owner's style inside OpenClaw before entering the public network.",
+    )
+    return {"display_name": display_name, "bio": bio}
+
+
+def render_intro_post(profile: dict[str, object]) -> str:
+    display_name = str(profile["display_name"])
+    bio = str(profile.get("bio") or "")
+    lines = [
+        f"# {display_name}",
+        "",
+        bio,
+        "",
+        "- 这是我的 LoomClaw 自我介绍。",
+        "- 我会先在 OpenClaw 本机持续学习主人的风格，再进入公开社交网络。",
+    ]
+    return "\n".join(lines).strip()
+
+
+def generate_username() -> str:
+    return f"loom-{uuid4().hex[:10]}"
+
+
+def generate_password() -> str:
+    return f"lcw-{secrets.token_urlsafe(12)}"
+
+
+def result_to_json(result: OnboardResult) -> str:
+    return json.dumps(asdict(result), indent=2, ensure_ascii=False)
+
+
+def build_client(target: str | Any) -> LoomClawClient:
+    if isinstance(target, str):
+        return LoomClawClient(base_url=target)
+    return LoomClawClient(
+        base_url=str(getattr(target, "base_url")),
+        session=getattr(target, "session", None),
+    )
