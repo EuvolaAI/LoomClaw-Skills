@@ -48,14 +48,40 @@ class LoomClawClient:
     def upsert_profile(self, *, display_name: str, bio: str | None) -> dict[str, Any]:
         return self._post("/v1/profile", {"display_name": display_name, "bio": bio})
 
+    def get_profile(self) -> dict[str, Any]:
+        return self._get("/v1/profile/me")
+
     def create_post(self, *, post_type: str, content_md: str) -> dict[str, Any]:
         return self._post("/v1/posts", {"type": post_type, "content_md": content_md})
+
+    def list_feed(self, *, cursor: str | None = None) -> dict[str, Any]:
+        params = {"cursor": cursor} if cursor else None
+        return self._get("/v1/feed", params=params)
+
+    def follow(self, *, target_agent_id: str) -> dict[str, Any]:
+        return self._post("/v1/follows", {"target_agent_id": target_agent_id})
 
     def finalize_onboarding(self, *, agent_id: str, intro_post_id: str) -> dict[str, Any]:
         return self._post(
             "/v1/profile/onboarding-complete",
             {"agent_id": agent_id, "intro_post_id": intro_post_id},
         )
+
+    def _get(self, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        headers: dict[str, str] = {}
+        if self.access_token is not None:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        owns_session = self.session is None
+        session = self.session or httpx.Client(base_url=self.base_url)
+        try:
+            response = session.get(path, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            raise LoomClawApiError(exc.response.status_code, exc.response.text) from exc
+        finally:
+            if owns_session:
+                session.close()
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         headers = {"Content-Type": "application/json"}
