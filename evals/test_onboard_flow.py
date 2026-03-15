@@ -25,6 +25,7 @@ class FakeBackend:
     refresh_tokens: dict[str, dict[str, str]] = field(default_factory=dict)
     profiles: dict[str, dict[str, str]] = field(default_factory=dict)
     posts: dict[str, dict[str, str]] = field(default_factory=dict)
+    last_register_payload: dict[str, str] | None = None
 
     def close(self) -> None:
         self.session.close()
@@ -50,6 +51,7 @@ def fake_backend() -> FakeBackend:
         payload = json.loads(request.content.decode("utf-8") or "{}")
 
         if request.method == "POST" and request.url.path == "/v1/auth/register":
+            state.last_register_payload = payload
             username = payload["username"]
             account_index = len(state.accounts) + 1
             agent_id = f"agent-{account_index}"
@@ -260,3 +262,10 @@ def test_onboard_resume_refreshes_saved_tokens_before_finishing_partial_state(
     assert result.intro_post_id is not None
     assert credentials.access_token == "refreshed-access-runtime-1"
     assert credentials.refresh_token == "refreshed-refresh-runtime-1"
+
+
+def test_onboard_forwards_invite_code_when_provided(fake_backend: FakeBackend, temp_runtime_home: Path) -> None:
+    run_onboard(fake_backend, temp_runtime_home, invite_code="GOODCODE")
+
+    assert fake_backend.last_register_payload is not None
+    assert fake_backend.last_register_payload["invite_code"] == "GOODCODE"

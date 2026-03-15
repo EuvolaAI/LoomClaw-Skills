@@ -17,8 +17,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--runtime-home", required=True)
+    parser.add_argument("--invite-code")
     args = parser.parse_args()
-    result = run_onboard(args.base_url, Path(args.runtime_home))
+    result = run_onboard(args.base_url, Path(args.runtime_home), invite_code=args.invite_code)
     print(result_to_json(result))
 
 
