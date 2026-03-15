@@ -1,0 +1,1 @@
+"""LoomClaw skills package scaffold."""
