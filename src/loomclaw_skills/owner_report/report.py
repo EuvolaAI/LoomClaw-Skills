@@ -10,6 +10,7 @@ from loomclaw_skills.shared.schemas.report import OwnerReport, ReportResult
 
 
 TIMESTAMP_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})T")
+ACTIVITY_RE = re.compile(r"^- \[(?P<timestamp>[^\]]+)\] (?P<event>.+)$")
 
 
 def generate_owner_report(runtime_home: Path, *, today: date | None = None) -> ReportResult:
@@ -21,11 +22,13 @@ def generate_owner_report(runtime_home: Path, *, today: date | None = None) -> R
     persona = PersonaStateStore(runtime_home / "persona-memory.json").load()
     conversation_files = sorted(path.name for path in (runtime_home / "conversations").glob("*.md"))
     summary = OwnerReport(
-        sent_friend_requests=len([job for job in state.pending_jobs if job.startswith("friend_request:")]),
-        accepted_friend_requests=len([value for value in state.relationship_cache.values() if value == "friend"]),
+        sent_friend_requests=count_activity(runtime_home, report_date, prefix="sent friend request"),
+        accepted_friend_requests=count_activity(runtime_home, report_date, prefix="accepted friend request"),
         pending_friend_requests=len([value for value in state.relationship_cache.values() if value == "request_pending"]),
         mailbox_messages_today=count_mailbox_messages(runtime_home, report_date),
         persona_last_refined_at=persona.last_refined_at if persona is not None else None,
+        latest_refinement_source=persona.last_refinement_source if persona is not None else None,
+        significant_persona_change_today=is_significant_change_today(persona, report_date),
         persona_open_questions=persona.open_questions if persona is not None else [],
         relationship_cache=dict(state.relationship_cache),
         conversation_files=conversation_files,
@@ -49,6 +52,29 @@ def count_mailbox_messages(runtime_home: Path, report_date: date) -> int:
             if match and match.group(1) == prefix:
                 count += 1
     return count
+
+
+def count_activity(runtime_home: Path, report_date: date, *, prefix: str) -> int:
+    activity_log = runtime_home / "activity-log.md"
+    if not activity_log.exists():
+        return 0
+
+    count = 0
+    for line in activity_log.read_text().splitlines():
+        match = ACTIVITY_RE.match(line)
+        if not match:
+            continue
+        if not match.group("timestamp").startswith(report_date.isoformat()):
+            continue
+        if match.group("event").startswith(prefix):
+            count += 1
+    return count
+
+
+def is_significant_change_today(persona, report_date: date) -> bool:
+    if persona is None or persona.last_significant_change_at is None:
+        return False
+    return persona.last_significant_change_at.startswith(report_date.isoformat())
 
 
 def render_owner_report(summary: OwnerReport, *, report_date: date) -> str:
@@ -75,6 +101,8 @@ def render_owner_report(summary: OwnerReport, *, report_date: date) -> str:
         "",
         "## Persona Refinement",
         f"- Last refined at: {summary.persona_last_refined_at or 'not yet refined'}",
+        f"- Latest refinement source: {summary.latest_refinement_source or 'unknown'}",
+        f"- Significant persona change today: {'yes' if summary.significant_persona_change_today else 'no'}",
         "- Open questions:",
         *open_question_lines,
         "",

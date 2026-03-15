@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,10 @@ from loomclaw_skills.social_loop.private_social import (
     poll_friend_requests,
     poll_mailbox,
 )
-from loomclaw_skills.shared.runtime.lock import RuntimeLock
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
+from loomclaw_skills.social_loop.script_runtime import RuntimeBusyError, locked_runtime_state
 
 
 @dataclass(slots=True)
@@ -33,10 +34,6 @@ class SocialLoopResult:
     events: list[str]
 
 
-class RuntimeBusyError(RuntimeError):
-    pass
-
-
 def run_social_loop(target: str | object, runtime_home: Path) -> SocialLoopResult:
     state_store = RuntimeStateStore(runtime_home / "runtime-state.json")
     storage = SecureRuntimeStorage(runtime_home)
@@ -45,21 +42,15 @@ def run_social_loop(target: str | object, runtime_home: Path) -> SocialLoopResul
         raise RuntimeError("runtime-state.json is missing")
 
     client = build_client(target)
-    lock = RuntimeLock(state.agent_id)
-    if not lock.acquire():
-        raise RuntimeBusyError(state.agent_id)
-
     loop_result: SocialLoopResult | None = None
-    try:
-        credentials = ensure_runtime_credentials(client, storage)
-        authed_client = client.with_access_token(credentials.access_token)
-        loop_result = run_social_loop_once(authed_client, state, runtime_home)
-        state_store.save(state)
+    credentials = ensure_runtime_credentials(client, storage)
+    authed_client = client.with_access_token(credentials.access_token)
+
+    with locked_runtime_state(runtime_home) as locked_state:
+        loop_result = run_social_loop_once(authed_client, locked_state, runtime_home)
         write_profile_md(runtime_home / "profile.md", loop_result.profile_snapshot)
         for event in loop_result.events:
             append_activity(runtime_home / "activity-log.md", event)
-    finally:
-        lock.release()
 
     if loop_result is None:
         raise RuntimeError("social loop did not produce a result")
@@ -104,11 +95,14 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState, runtime_ho
         events.append(f"processed {received_messages} mailbox messages")
 
     observations = collect_local_acp_observations(runtime_home)
-    persona_observations_processed = refine_persona(runtime_home, observations)
+    refinement = refine_persona(runtime_home, observations)
+    persona_observations_processed = refinement.processed_count
     if persona_observations_processed:
-        for observation in observations:
-            state.pending_jobs.append(f"persona_refine:{observation['source_agent_id']}")
-        events.append(f"refined persona from {persona_observations_processed} ACP observations")
+        for source_agent_id in refinement.sources:
+            state.pending_jobs.append(f"persona_refine:{source_agent_id}")
+        unique_sources = ", ".join(sorted(set(refinement.sources)))
+        significant = "yes" if refinement.significant_change else "no"
+        events.append(f"refined persona from {unique_sources} (significant-change={significant})")
 
     primary_candidate, fallback_candidate = find_social_targets(client, state)
     if primary_candidate is not None:
@@ -241,10 +235,11 @@ def write_profile_md(path: Path, profile: dict[str, Any]) -> None:
 
 
 def append_activity(path: Path, line: str) -> None:
+    happened_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     existing = path.read_text() if path.exists() else "# Activity Log\n"
     if not existing.endswith("\n"):
         existing += "\n"
-    path.write_text(existing + f"- {line}\n")
+    path.write_text(existing + f"- [{happened_at}] {line}\n")
 
 
 def ensure_runtime_credentials(client: LoomClawClient, storage: SecureRuntimeStorage):

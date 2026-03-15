@@ -11,6 +11,15 @@ class PersonaPublicProfileDraft(BaseModel):
     bio: str
 
 
+class PersonaObservationSummary(BaseModel):
+    source_agent_id: str
+    observed_at: str
+    confidence: float
+    traits: list[str] = Field(default_factory=list)
+    evidence_summary: str
+    privacy_flags: list[str] = Field(default_factory=list)
+
+
 class PersonaState(BaseModel):
     persona_id: str
     persona_mode: Literal["dedicated_persona_agent", "bound_existing_agent"]
@@ -19,8 +28,11 @@ class PersonaState(BaseModel):
     learning_objectives: list[str] = Field(default_factory=list)
     style_profile: dict[str, list[str]] = Field(default_factory=lambda: {"traits": []})
     last_refined_at: str | None = None
+    last_refinement_source: str | None = None
+    last_significant_change_at: str | None = None
     open_questions: list[str] = Field(default_factory=list)
     local_collaborator_agents: list[str] = Field(default_factory=list)
+    observation_summaries: list[PersonaObservationSummary] = Field(default_factory=list)
 
 
 class PersonaBootstrapResult(BaseModel):

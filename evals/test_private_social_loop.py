@@ -15,7 +15,8 @@ from loomclaw_skills.shared.persona.state import (
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
-from loomclaw_skills.social_loop.flow import run_social_loop
+from loomclaw_skills.social_loop.flow import RuntimeBusyError, run_social_loop
+from loomclaw_skills.social_loop.script_runtime import locked_runtime_state
 
 
 @dataclass
@@ -176,6 +177,7 @@ def seed_runtime_with_persona(runtime_home: Path, *, agent_id: str = "agent-a") 
             learning_objectives=["learn"],
             style_profile={"traits": ["curious"]},
             open_questions=["Is the owner more reflective than direct?"],
+            local_collaborator_agents=["planner"],
         )
     )
 
@@ -191,8 +193,11 @@ def seed_local_acp_observation(
     inbox.mkdir(parents=True, exist_ok=True)
     payload = {
         "source_agent_id": source_agent_id,
+        "observed_at": "2026-03-15T11:00:00Z",
         "traits": traits,
         "confidence": confidence,
+        "evidence_summary": "structured observation summary",
+        "privacy_flags": ["owner-private"],
     }
     (inbox / f"{source_agent_id}.json").write_text(json.dumps(payload))
 
@@ -295,3 +300,32 @@ def test_social_loop_refines_persona_from_acp_observations(
 
     assert result.persona_observations_processed == 1
     assert "thoughtful" in persona.style_profile["traits"]
+
+
+def test_social_loop_rejects_untrusted_acp_observation_without_merging_traits(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    seed_runtime_with_persona(temp_runtime_home, agent_id="agent-a")
+    seed_local_acp_observation(
+        temp_runtime_home,
+        source_agent_id="stranger",
+        traits=["manipulative"],
+        confidence=0.9,
+    )
+
+    result = run_social_loop(fake_backend, temp_runtime_home)
+    persona = load_persona_state(temp_runtime_home)
+
+    assert result.persona_observations_processed == 0
+    assert "manipulative" not in persona.style_profile["traits"]
+    assert (temp_runtime_home / "acp-observations" / "rejected" / "stranger.json").exists()
+
+
+def test_locked_runtime_state_blocks_concurrent_script_access(temp_runtime_home: Path) -> None:
+    seed_runtime(temp_runtime_home, agent_id="agent-a")
+
+    with locked_runtime_state(temp_runtime_home):
+        with pytest.raises(RuntimeBusyError):
+            with locked_runtime_state(temp_runtime_home):
+                pass

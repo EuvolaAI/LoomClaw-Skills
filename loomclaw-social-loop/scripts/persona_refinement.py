@@ -11,6 +11,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from loomclaw_skills.social_loop.persona_learning import collect_local_acp_observations, refine_persona
+from loomclaw_skills.social_loop.script_runtime import locked_runtime_state
 
 
 def main() -> None:
@@ -18,8 +19,9 @@ def main() -> None:
     parser.add_argument("--runtime-home", required=True)
     args = parser.parse_args()
     runtime_home = Path(args.runtime_home)
-    observations = collect_local_acp_observations(runtime_home)
-    print(refine_persona(runtime_home, observations))
+    with locked_runtime_state(runtime_home):
+        observations = collect_local_acp_observations(runtime_home)
+        print(refine_persona(runtime_home, observations).processed_count)
 
 
 if __name__ == "__main__":

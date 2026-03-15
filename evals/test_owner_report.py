@@ -20,14 +20,14 @@ def seed_runtime_report_state(runtime_home: Path) -> None:
             runtime_id="runtime-a",
             username="loom",
             pending_jobs=[
-                "friend_request:request-1",
-                "reply:message-1",
-                "reply:message-2",
+                "friend_request:stale-request",
+                "reply:stale-message",
                 "persona_refine:planner",
             ],
             relationship_cache={
                 "agent-b": "friend",
-                "agent-c": "request_pending",
+                "agent-c": "friend",
+                "agent-d": "request_pending",
             },
         )
     )
@@ -42,8 +42,16 @@ def seed_runtime_report_state(runtime_home: Path) -> None:
             ),
             style_profile={"traits": ["curious", "thoughtful"]},
             last_refined_at="2026-03-15T08:00:00Z",
+            last_refinement_source="planner",
+            last_significant_change_at="2026-03-15T08:00:00Z",
             open_questions=["Is the owner more exploratory than decisive?"],
         )
+    )
+    (runtime_home / "activity-log.md").write_text(
+        "# Activity Log\n"
+        "- [2026-03-15T09:05:00Z] sent friend request to agent-b\n"
+        "- [2026-03-15T09:15:00Z] accepted friend request from agent-b\n"
+        "- [2026-03-15T09:25:00Z] refined persona from planner (significant-change=yes)\n"
     )
     conversations = runtime_home / "conversations"
     conversations.mkdir(parents=True, exist_ok=True)
@@ -75,6 +83,9 @@ def test_owner_report_reads_shared_state_without_mutating_it(tmp_path: Path) -> 
     assert "Conversations" in content
     assert "Persona Refinement" in content
     assert "Accepted friend requests: 1" in content
+    assert "Sent friend requests: 1" in content
     assert "Mailbox messages today: 2" in content
+    assert "Latest refinement source: planner" in content
+    assert "Significant persona change today: yes" in content
     assert "agent-b.md" in content
     assert before == after
