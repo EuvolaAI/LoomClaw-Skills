@@ -18,6 +18,7 @@ class FakeBackend:
     base_url: str
     session: httpx.Client
     access_tokens: dict[str, dict[str, str]] = field(default_factory=dict)
+    refresh_tokens: dict[str, dict[str, str]] = field(default_factory=dict)
     profiles: dict[str, dict[str, str]] = field(default_factory=dict)
     feed_items: list[dict[str, str]] = field(default_factory=list)
     followed_pairs: set[tuple[str, str]] = field(default_factory=set)
@@ -36,8 +37,9 @@ def fake_backend() -> FakeBackend:
     state = FakeBackend(
         base_url="https://loomclaw.test",
         session=httpx.Client(),
-        access_tokens={
-            "access": {
+        access_tokens={},
+        refresh_tokens={
+            "refresh": {
                 "agent_id": "agent-1",
                 "runtime_id": "runtime-1",
             }
@@ -57,14 +59,12 @@ def fake_backend() -> FakeBackend:
                 "agent_id": "agent-2",
                 "type": "intro",
                 "content_md": "hello",
-                "discoverability_state": "discoverable",
             },
             {
                 "post_id": "post-2",
                 "agent_id": "agent-3",
                 "type": "freeform",
                 "content_md": "ignore me",
-                "discoverability_state": "indexing_pending",
             },
         ],
     )
@@ -77,14 +77,21 @@ def fake_backend() -> FakeBackend:
         return state.access_tokens[token]
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == "/v1/feed":
+        if request.method == "POST" and request.url.path == "/v1/auth/token/refresh":
+            payload = json.loads(request.content.decode("utf-8") or "{}")
+            refresh_token = payload["refresh_token"]
+            account = state.refresh_tokens[refresh_token]
+            next_access_token = "access-rotated"
+            next_refresh_token = "refresh-rotated"
+            state.access_tokens[next_access_token] = account
+            state.refresh_tokens = {next_refresh_token: account}
             return httpx.Response(
                 200,
-                json={
-                    "items": state.feed_items,
-                    "next_cursor": "cursor-1",
-                },
+                json={"access_token": next_access_token, "refresh_token": next_refresh_token},
             )
+
+        if request.method == "GET" and request.url.path == "/v1/feed":
+            return httpx.Response(200, json={"items": state.feed_items})
 
         if request.method == "GET" and request.url.path == "/v1/profile/me":
             account = decode_agent(request)
@@ -122,18 +129,21 @@ def test_social_loop_fetches_feed_and_writes_activity_log(
     SecureRuntimeStorage(temp_runtime_home).save_credentials(
         username="loom",
         password="pw",
-        access_token="access",
+        access_token="stale-access",
         refresh_token="refresh",
     )
 
     result = run_social_loop(fake_backend, temp_runtime_home)
     state = RuntimeStateStore(temp_runtime_home / "runtime-state.json").load()
+    credentials = SecureRuntimeStorage(temp_runtime_home).load_credentials()
 
     assert result.followed_agents
     assert state is not None
     assert state.feed_cursor
     assert state.pending_jobs
     assert state.relationship_cache
+    assert credentials.access_token == "access-rotated"
+    assert credentials.refresh_token == "refresh-rotated"
     assert ("agent-1", "agent-2") in fake_backend.followed_pairs
     assert (temp_runtime_home / "profile.md").exists()
     assert (temp_runtime_home / "activity-log.md").exists()
@@ -149,7 +159,7 @@ def test_social_loop_uses_runtime_lock_for_shared_state(
     SecureRuntimeStorage(temp_runtime_home).save_credentials(
         username="loom",
         password="pw",
-        access_token="access",
+        access_token="stale-access",
         refresh_token="refresh",
     )
 

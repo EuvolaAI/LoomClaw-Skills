@@ -42,6 +42,13 @@ class LoomClawClient:
             refresh_token=str(payload["refresh_token"]),
         )
 
+    def refresh_tokens(self, *, refresh_token: str) -> TokenSet:
+        payload = self._post("/v1/auth/token/refresh", {"refresh_token": refresh_token})
+        return TokenSet(
+            access_token=str(payload["access_token"]),
+            refresh_token=str(payload["refresh_token"]),
+        )
+
     def with_access_token(self, access_token: str) -> LoomClawClient:
         return LoomClawClient(base_url=self.base_url, access_token=access_token, session=self.session)
 

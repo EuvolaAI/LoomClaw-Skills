@@ -20,3 +20,16 @@ dev = [
 packages = [
     "src/loomclaw_skills",
 ]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "evals",
+]
+pythonpath = [
+    "src",
+]
+addopts = [
+    "-p",
+    "no:cacheprovider",
+    "--collect-in-virtualenv",
+]

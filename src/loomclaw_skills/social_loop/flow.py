@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from loomclaw_skills.onboard.client import LoomClawClient
+from loomclaw_skills.onboard.client import LoomClawApiError, LoomClawClient
 from loomclaw_skills.shared.runtime.lock import RuntimeLock
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
@@ -31,15 +31,16 @@ def run_social_loop(target: str | object, runtime_home: Path) -> SocialLoopResul
     if state is None:
         raise RuntimeError("runtime-state.json is missing")
 
-    credentials = storage.load_credentials()
-    client = build_client(target, access_token=credentials.access_token)
+    client = build_client(target)
     lock = RuntimeLock(state.agent_id)
     if not lock.acquire():
         raise RuntimeBusyError(state.agent_id)
 
     loop_result: SocialLoopResult | None = None
     try:
-        loop_result = run_social_loop_once(client, state)
+        credentials = ensure_runtime_credentials(client, storage)
+        authed_client = client.with_access_token(credentials.access_token)
+        loop_result = run_social_loop_once(authed_client, state)
         state_store.save(state)
         write_profile_md(runtime_home / "profile.md", loop_result.profile_snapshot)
         for event in loop_result.events:
@@ -60,7 +61,7 @@ def run_social_loop(target: str | object, runtime_home: Path) -> SocialLoopResul
 
 
 def run_social_loop_once(client: LoomClawClient, state: RuntimeState) -> SocialLoopResult:
-    feed = client.list_feed(cursor=state.feed_cursor)
+    feed = client.list_feed()
     candidate = pick_follow_candidate(
         feed["items"],
         self_agent_id=state.agent_id,
@@ -68,7 +69,7 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState) -> SocialL
     )
     client.follow(target_agent_id=candidate["agent_id"])
     enqueue_follow_job(state, candidate["agent_id"])
-    state.feed_cursor = str(feed["next_cursor"])
+    state.feed_cursor = next_feed_cursor(feed["items"], previous_cursor=state.feed_cursor)
     state.relationship_cache[candidate["agent_id"]] = "following"
     profile_snapshot = client.get_profile()
     return SocialLoopResult(
@@ -92,14 +93,18 @@ def pick_follow_candidate(
             continue
         if relationship_cache.get(agent_id) == "following":
             continue
-        if item.get("discoverability_state") != "discoverable":
-            continue
         return item
-    raise RuntimeError("no discoverable follow candidate found")
+    raise RuntimeError("no follow candidate found")
 
 
 def enqueue_follow_job(state: RuntimeState, candidate_id: str) -> None:
     state.pending_jobs.append(f"follow:{candidate_id}")
+
+
+def next_feed_cursor(feed_items: list[dict[str, Any]], *, previous_cursor: str | None) -> str | None:
+    if not feed_items:
+        return previous_cursor
+    return str(feed_items[0]["post_id"])
 
 
 def write_profile_md(path: Path, profile: dict[str, Any]) -> None:
@@ -123,7 +128,27 @@ def append_activity(path: Path, line: str) -> None:
     path.write_text(existing + f"- {line}\n")
 
 
-def build_client(target: str | object, *, access_token: str) -> LoomClawClient:
+def ensure_runtime_credentials(client: LoomClawClient, storage: SecureRuntimeStorage):
+    credentials = storage.load_credentials()
+    try:
+        rotated = client.refresh_tokens(refresh_token=credentials.refresh_token)
+    except LoomClawApiError as exc:
+        if exc.status != 401:
+            raise
+        rotated = client.exchange_password_for_tokens(
+            username=credentials.username,
+            password=credentials.password,
+        )
+    storage.save_credentials(
+        username=credentials.username,
+        password=credentials.password,
+        access_token=rotated.access_token,
+        refresh_token=rotated.refresh_token,
+    )
+    return storage.load_credentials()
+
+
+def build_client(target: str | object, *, access_token: str | None = None) -> LoomClawClient:
     if isinstance(target, str):
         return LoomClawClient(base_url=target, access_token=access_token)
     return LoomClawClient(

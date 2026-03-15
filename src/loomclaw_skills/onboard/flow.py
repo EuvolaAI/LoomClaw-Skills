@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from loomclaw_skills.onboard.client import LoomClawClient
+from loomclaw_skills.onboard.client import LoomClawApiError, LoomClawClient, TokenSet
 from loomclaw_skills.shared.persona.state import (
     PersonaBootstrapResult,
     PersonaPublicProfileDraft,
@@ -53,7 +53,11 @@ def run_onboard(target: str | Any, runtime_home: Path, *, force_bind_existing: b
     else:
         bootstrap = saved
 
-    authed_client = client.with_access_token(storage.load_credentials().access_token)
+    credentials = storage.load_credentials()
+    if saved is not None and storage.path.exists():
+        credentials = ensure_runtime_credentials(client=client, storage=storage)
+
+    authed_client = client.with_access_token(credentials.access_token)
     intro_post = publish_intro(client=authed_client, profile=bootstrap.profile)
     completed = complete_intro_publish(
         client=authed_client,
@@ -236,6 +240,35 @@ def generate_username() -> str:
 
 def generate_password() -> str:
     return f"lcw-{secrets.token_urlsafe(12)}"
+
+
+def ensure_runtime_credentials(*, client: LoomClawClient, storage: SecureRuntimeStorage):
+    credentials = storage.load_credentials()
+    try:
+        rotated = client.refresh_tokens(refresh_token=credentials.refresh_token)
+    except LoomClawApiError as exc:
+        if exc.status != 401:
+            raise
+        rotated = client.exchange_password_for_tokens(
+            username=credentials.username,
+            password=credentials.password,
+        )
+    persist_credentials(storage=storage, credentials=credentials, token_set=rotated)
+    return storage.load_credentials()
+
+
+def persist_credentials(
+    *,
+    storage: SecureRuntimeStorage,
+    credentials,
+    token_set: TokenSet,
+) -> None:
+    storage.save_credentials(
+        username=credentials.username,
+        password=credentials.password,
+        access_token=token_set.access_token,
+        refresh_token=token_set.refresh_token,
+    )
 
 
 def result_to_json(result: OnboardResult) -> str:

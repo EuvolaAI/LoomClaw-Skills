@@ -9,8 +9,10 @@ import httpx
 import pytest
 
 from loomclaw_skills.onboard.flow import load_saved_onboard_result, run_onboard
+from loomclaw_skills.shared.persona.state import PersonaPublicProfileDraft, PersonaState, PersonaStateStore
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
+from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 
 
 @dataclass
@@ -20,6 +22,7 @@ class FakeBackend:
     accounts: dict[str, dict[str, str]] = field(default_factory=dict)
     runtimes: dict[str, dict[str, str]] = field(default_factory=dict)
     access_tokens: dict[str, dict[str, str]] = field(default_factory=dict)
+    refresh_tokens: dict[str, dict[str, str]] = field(default_factory=dict)
     profiles: dict[str, dict[str, str]] = field(default_factory=dict)
     posts: dict[str, dict[str, str]] = field(default_factory=dict)
 
@@ -66,6 +69,15 @@ def fake_backend() -> FakeBackend:
             access_token = f"access-{account['runtime_id']}"
             refresh_token = f"refresh-{account['runtime_id']}"
             state.access_tokens[access_token] = account
+            state.refresh_tokens[refresh_token] = account
+            return httpx.Response(200, json={"access_token": access_token, "refresh_token": refresh_token})
+
+        if request.method == "POST" and request.url.path == "/v1/auth/token/refresh":
+            account = state.refresh_tokens[payload["refresh_token"]]
+            access_token = f"refreshed-access-{account['runtime_id']}"
+            refresh_token = f"refreshed-refresh-{account['runtime_id']}"
+            state.access_tokens[access_token] = account
+            state.refresh_tokens = {refresh_token: account}
             return httpx.Response(200, json={"access_token": access_token, "refresh_token": refresh_token})
 
         if request.method == "POST" and request.url.path == "/v1/profile":
@@ -189,3 +201,62 @@ def test_load_saved_onboard_result_uses_persisted_persona_draft(
 
     assert saved is not None
     assert saved.profile["display_name"] == "Stored Persona"
+
+
+def test_onboard_resume_refreshes_saved_tokens_before_finishing_partial_state(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    fake_backend.accounts["loom"] = {
+        "username": "loom",
+        "password": "pw",
+        "agent_id": "agent-1",
+        "runtime_id": "runtime-1",
+    }
+    fake_backend.runtimes["runtime-1"] = fake_backend.accounts["loom"]
+    fake_backend.refresh_tokens["refresh-runtime-1"] = fake_backend.accounts["loom"]
+    fake_backend.profiles["agent-1"] = {
+        "agent_id": "agent-1",
+        "display_name": "Stored Persona",
+        "bio": "Stored bio",
+        "publication_state": "draft",
+        "discoverability_state": "indexing_pending",
+    }
+    PersonaStateStore(temp_runtime_home / "persona-memory.json").save(
+        PersonaState(
+            persona_id="persona-1",
+            persona_mode="dedicated_persona_agent",
+            active_agent_ref="loomclaw-persona::resume",
+            public_profile_draft=PersonaPublicProfileDraft(
+                display_name="Stored Persona",
+                bio="Stored bio",
+            ),
+            learning_objectives=[],
+        )
+    )
+    RuntimeStateStore(temp_runtime_home / "runtime-state.json").save(
+        RuntimeState(
+            agent_id="agent-1",
+            runtime_id="runtime-1",
+            username="loom",
+            persona_id="persona-1",
+            persona_mode="dedicated_persona_agent",
+            intro_post_id=None,
+            publication_state="draft",
+            discoverability_state="indexing_pending",
+        )
+    )
+    SecureRuntimeStorage(temp_runtime_home).save_credentials(
+        username="loom",
+        password="pw",
+        access_token="stale-access-runtime-1",
+        refresh_token="refresh-runtime-1",
+    )
+
+    result = run_onboard(fake_backend, temp_runtime_home)
+    credentials = SecureRuntimeStorage(temp_runtime_home).load_credentials()
+
+    assert result.publication_state == "published"
+    assert result.intro_post_id is not None
+    assert credentials.access_token == "refreshed-access-runtime-1"
+    assert credentials.refresh_token == "refreshed-refresh-runtime-1"
