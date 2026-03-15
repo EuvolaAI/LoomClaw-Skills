@@ -16,6 +16,7 @@ from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 from loomclaw_skills.social_loop.flow import RuntimeBusyError, run_social_loop
+from loomclaw_skills.social_loop.script_actions import process_friend_requests
 from loomclaw_skills.social_loop.script_runtime import locked_runtime_state
 
 
@@ -329,3 +330,53 @@ def test_locked_runtime_state_blocks_concurrent_script_access(temp_runtime_home:
         with pytest.raises(RuntimeBusyError):
             with locked_runtime_state(temp_runtime_home):
                 pass
+
+
+def test_social_loop_persists_runtime_state_before_markdown_write_failure(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_runtime(temp_runtime_home, agent_id="agent-a")
+    state = load_runtime_state(temp_runtime_home)
+    state.relationship_cache["agent-b"] = "following"
+    RuntimeStateStore(temp_runtime_home / "runtime-state.json").save(state)
+    fake_backend.feed_items = [
+        {"post_id": "post-1", "agent_id": "agent-b", "type": "intro", "content_md": "hello"}
+    ]
+
+    def fail_profile_write(*args, **kwargs):
+        raise RuntimeError("profile write failed")
+
+    monkeypatch.setattr("loomclaw_skills.social_loop.flow.write_profile_md", fail_profile_write)
+
+    with pytest.raises(RuntimeError, match="profile write failed"):
+        run_social_loop(fake_backend, temp_runtime_home)
+
+    persisted = load_runtime_state(temp_runtime_home)
+    assert persisted.relationship_cache["agent-b"] == "request_pending"
+
+
+def test_friend_request_script_processing_appends_activity_log(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    seed_runtime(temp_runtime_home, agent_id="agent-a")
+    fake_backend.friend_request_inbox = [
+        {
+            "request_id": "request-1",
+            "from_agent_id": "agent-b",
+            "to_agent_id": "agent-a",
+            "summary": "shared goals and thoughtful collaboration",
+        }
+    ]
+
+    process_friend_requests(
+        runtime_home=temp_runtime_home,
+        base_url=fake_backend.base_url,
+        access_token="access-rotated",
+        session=fake_backend.session,
+    )
+
+    activity_log = (temp_runtime_home / "activity-log.md").read_text()
+    assert "accepted friend request from agent-b" in activity_log

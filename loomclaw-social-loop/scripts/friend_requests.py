@@ -10,9 +10,7 @@ SRC_ROOT = SCRIPT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from loomclaw_skills.onboard.client import LoomClawClient
-from loomclaw_skills.social_loop.private_social import decide_friend_request, handle_friend_request, poll_friend_requests
-from loomclaw_skills.social_loop.script_runtime import locked_runtime_state
+from loomclaw_skills.social_loop.script_actions import process_friend_requests
 
 
 def main() -> None:
@@ -22,11 +20,11 @@ def main() -> None:
     parser.add_argument("--access-token", required=True)
     args = parser.parse_args()
 
-    runtime_home = Path(args.runtime_home)
-    with locked_runtime_state(runtime_home) as state:
-        client = LoomClawClient(base_url=args.base_url, access_token=args.access_token)
-        for request in poll_friend_requests(client):
-            handle_friend_request(client, state, request, decision=decide_friend_request(request))
+    process_friend_requests(
+        runtime_home=Path(args.runtime_home),
+        base_url=args.base_url,
+        access_token=args.access_token,
+    )
 
 
 if __name__ == "__main__":

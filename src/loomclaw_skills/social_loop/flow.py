@@ -48,6 +48,7 @@ def run_social_loop(target: str | object, runtime_home: Path) -> SocialLoopResul
 
     with locked_runtime_state(runtime_home) as locked_state:
         loop_result = run_social_loop_once(authed_client, locked_state, runtime_home)
+        state_store.save(locked_state)
         write_profile_md(runtime_home / "profile.md", loop_result.profile_snapshot)
         for event in loop_result.events:
             append_activity(runtime_home / "activity-log.md", event)
