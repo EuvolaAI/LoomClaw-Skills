@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 
-from loomclaw_skills.onboard.flow import run_onboard
+from loomclaw_skills.onboard.flow import load_saved_onboard_result, run_onboard
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 
@@ -155,3 +155,37 @@ def test_onboard_falls_back_to_bound_existing_agent_when_persona_creation_fails(
     result = run_onboard(fake_backend, temp_runtime_home, force_bind_existing=True)
 
     assert result.persona_mode == "bound_existing_agent"
+
+
+def test_onboard_is_restart_safe_and_reuses_saved_state(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "First Persona")
+    first = run_onboard(fake_backend, temp_runtime_home)
+
+    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "Changed Persona")
+    second = run_onboard(fake_backend, temp_runtime_home)
+
+    assert second.agent_id == first.agent_id
+    assert second.runtime_id == first.runtime_id
+    assert second.persona_id == first.persona_id
+    assert second.profile["display_name"] == "First Persona"
+    assert len(fake_backend.accounts) == 1
+    assert len(fake_backend.posts) == 1
+
+
+def test_load_saved_onboard_result_uses_persisted_persona_draft(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "Stored Persona")
+    run_onboard(fake_backend, temp_runtime_home)
+
+    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "Changed Persona")
+    saved = load_saved_onboard_result(temp_runtime_home)
+
+    assert saved is not None
+    assert saved.profile["display_name"] == "Stored Persona"

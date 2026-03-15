@@ -37,21 +37,31 @@ class OnboardResult:
 def run_onboard(target: str | Any, runtime_home: Path, *, force_bind_existing: bool = False) -> OnboardResult:
     state_store = RuntimeStateStore(runtime_home / "runtime-state.json")
     storage = SecureRuntimeStorage(runtime_home)
+    saved = load_saved_onboard_result(runtime_home)
+    if saved is not None and saved.intro_post_id and saved.publication_state == "published":
+        return saved
+
     client = build_client(target)
-    bootstrap = register_and_bootstrap(
-        client=client,
-        state_store=state_store,
-        storage=storage,
-        runtime_home=runtime_home,
-        force_bind_existing=force_bind_existing,
-    )
+    if saved is None or not storage.path.exists():
+        bootstrap = register_and_bootstrap(
+            client=client,
+            state_store=state_store,
+            storage=storage,
+            runtime_home=runtime_home,
+            force_bind_existing=force_bind_existing,
+        )
+    else:
+        bootstrap = saved
+
     authed_client = client.with_access_token(storage.load_credentials().access_token)
     intro_post = publish_intro(client=authed_client, profile=bootstrap.profile)
-    return complete_intro_publish(
+    completed = complete_intro_publish(
         client=authed_client,
         bootstrap=bootstrap,
         intro_post_id=str(intro_post["post_id"]),
     )
+    persist_onboard_result(state_store, username=storage.load_credentials().username, result=completed)
+    return completed
 
 
 def register_and_bootstrap(
@@ -73,15 +83,6 @@ def register_and_bootstrap(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
     )
-    state_store.save(
-        RuntimeState(
-            agent_id=registration.agent_id,
-            runtime_id=registration.runtime_id,
-            username=username,
-            persona_id=persona.persona_id,
-            persona_mode=persona.persona_mode,
-        )
-    )
     remote_profile = client.with_access_token(tokens.access_token).upsert_profile(
         display_name=persona.draft_profile.display_name,
         bio=persona.draft_profile.bio,
@@ -93,7 +94,7 @@ def register_and_bootstrap(
         "publication_state": remote_profile["publication_state"],
         "discoverability_state": remote_profile["discoverability_state"],
     }
-    return OnboardResult(
+    result = OnboardResult(
         agent_id=registration.agent_id,
         runtime_id=registration.runtime_id,
         persona_id=persona.persona_id,
@@ -102,6 +103,33 @@ def register_and_bootstrap(
         intro_post_id=None,
         publication_state=str(remote_profile["publication_state"]),
         discoverability_state=str(remote_profile["discoverability_state"]),
+    )
+    persist_onboard_result(state_store, username=username, result=result)
+    return result
+
+
+def load_saved_onboard_result(runtime_home: Path) -> OnboardResult | None:
+    state = RuntimeStateStore(runtime_home / "runtime-state.json").load()
+    persona_state = PersonaStateStore(runtime_home / "persona-memory.json").load()
+    if state is None or persona_state is None or state.persona_id is None or state.persona_mode is None:
+        return None
+
+    profile = {
+        "agent_id": state.agent_id,
+        "display_name": persona_state.public_profile_draft.display_name,
+        "bio": persona_state.public_profile_draft.bio,
+        "publication_state": state.publication_state or "draft",
+        "discoverability_state": state.discoverability_state or "indexing_pending",
+    }
+    return OnboardResult(
+        agent_id=state.agent_id,
+        runtime_id=state.runtime_id,
+        persona_id=state.persona_id,
+        persona_mode=state.persona_mode,
+        profile=profile,
+        intro_post_id=state.intro_post_id,
+        publication_state=str(profile["publication_state"]),
+        discoverability_state=str(profile["discoverability_state"]),
     )
 
 
@@ -129,6 +157,21 @@ def complete_intro_publish(
         intro_post_id=intro_post_id,
         publication_state=str(published["publication_state"]),
         discoverability_state=str(published["discoverability_state"]),
+    )
+
+
+def persist_onboard_result(state_store: RuntimeStateStore, *, username: str, result: OnboardResult) -> None:
+    state_store.save(
+        RuntimeState(
+            agent_id=result.agent_id,
+            runtime_id=result.runtime_id,
+            username=username,
+            persona_id=result.persona_id,
+            persona_mode=result.persona_mode,
+            intro_post_id=result.intro_post_id,
+            publication_state=result.publication_state,
+            discoverability_state=result.discoverability_state,
+        )
     )
 
 
