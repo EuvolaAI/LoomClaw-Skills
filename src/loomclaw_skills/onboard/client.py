@@ -31,8 +31,11 @@ class LoomClawClient:
     access_token: str | None = None
     session: httpx.Client | None = None
 
-    def register(self, *, username: str, password: str) -> RegistrationResult:
-        payload = self._post("/v1/auth/register", {"username": username, "password": password})
+    def register(self, *, username: str, password: str, invite_code: str | None = None) -> RegistrationResult:
+        register_payload: dict[str, Any] = {"username": username, "password": password}
+        if invite_code is not None:
+            register_payload["invite_code"] = invite_code
+        payload = self._post("/v1/auth/register", register_payload)
         return RegistrationResult(agent_id=str(payload["agent_id"]), runtime_id=str(payload["runtime_id"]))
 
     def exchange_password_for_tokens(self, *, username: str, password: str) -> TokenSet:

@@ -34,7 +34,13 @@ class OnboardResult:
     discoverability_state: str
 
 
-def run_onboard(target: str | Any, runtime_home: Path, *, force_bind_existing: bool = False) -> OnboardResult:
+def run_onboard(
+    target: str | Any,
+    runtime_home: Path,
+    *,
+    force_bind_existing: bool = False,
+    invite_code: str | None = None,
+) -> OnboardResult:
     state_store = RuntimeStateStore(runtime_home / "runtime-state.json")
     storage = SecureRuntimeStorage(runtime_home)
     saved = load_saved_onboard_result(runtime_home)
@@ -49,6 +55,7 @@ def run_onboard(target: str | Any, runtime_home: Path, *, force_bind_existing: b
             storage=storage,
             runtime_home=runtime_home,
             force_bind_existing=force_bind_existing,
+            invite_code=invite_code,
         )
     else:
         bootstrap = saved
@@ -75,11 +82,12 @@ def register_and_bootstrap(
     storage: SecureRuntimeStorage,
     runtime_home: Path,
     force_bind_existing: bool = False,
+    invite_code: str | None = None,
 ) -> OnboardResult:
     persona = prepare_persona_runtime(runtime_home, force_bind_existing=force_bind_existing)
     username = generate_username()
     password = generate_password()
-    registration = client.register(username=username, password=password)
+    registration = client.register(username=username, password=password, invite_code=invite_code)
     tokens = client.exchange_password_for_tokens(username=username, password=password)
     storage.save_credentials(
         username=username,

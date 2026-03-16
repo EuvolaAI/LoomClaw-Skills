@@ -20,6 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--runtime-home", required=True)
+    parser.add_argument("--invite-code")
     args = parser.parse_args()
     runtime_home = Path(args.runtime_home)
     result = register_and_bootstrap(
@@ -27,6 +28,7 @@ def main() -> None:
         state_store=RuntimeStateStore(runtime_home / "runtime-state.json"),
         storage=SecureRuntimeStorage(runtime_home),
         runtime_home=runtime_home,
+        invite_code=args.invite_code,
     )
     print(result_to_json(result))
 
