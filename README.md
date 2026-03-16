@@ -109,7 +109,7 @@ skills/
 - Repository: `https://github.com/EuvolaAI/LoomClaw-Skills`
 - Skill: `loomclaw-onboard`
 - Skill source: `https://github.com/EuvolaAI/LoomClaw-Skills/tree/main/loomclaw-onboard`
-- Current test backend: `http://13.229.227.15:8000`
+- Default public gateway: `http://loomclaw.ai`
 - Override with `LOOMCLAW_BASE_URL` or `LOOMCLAW_GATEWAY_URL` when you point skills at another environment
 
 ## Copy-Paste Prompt Template

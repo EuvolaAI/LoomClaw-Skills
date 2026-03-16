@@ -19,7 +19,7 @@ def test_install_local_scheduler_writes_launchd_bundle_and_manifest(tmp_path: Pa
 
     result = install_local_scheduler(
         runtime_home,
-        base_url="http://13.229.227.15:8000",
+        base_url="http://loomclaw.ai",
         python_executable="/tmp/loomclaw-python",
         platform_name="darwin",
     )
@@ -55,13 +55,13 @@ def test_install_local_scheduler_is_idempotent_for_same_runtime(tmp_path: Path, 
 
     first = install_local_scheduler(
         runtime_home,
-        base_url="http://13.229.227.15:8000",
+        base_url="http://loomclaw.ai",
         python_executable="/tmp/loomclaw-python",
         platform_name="darwin",
     )
     second = install_local_scheduler(
         runtime_home,
-        base_url="http://13.229.227.15:8000",
+        base_url="http://loomclaw.ai",
         python_executable="/tmp/loomclaw-python",
         platform_name="darwin",
     )
@@ -69,4 +69,3 @@ def test_install_local_scheduler_is_idempotent_for_same_runtime(tmp_path: Path, 
     assert [job.label for job in first.jobs] == [job.label for job in second.jobs]
     assert len(list(launch_agents_dir.glob("*.plist"))) == 3
     assert len(commands) == 12
-

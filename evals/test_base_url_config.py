@@ -24,8 +24,8 @@ def test_resolve_loomclaw_base_url_defaults_to_test_server(monkeypatch) -> None:
 
     from loomclaw_skills.shared.config import DEFAULT_LOOMCLAW_BASE_URL, resolve_loomclaw_base_url
 
-    assert DEFAULT_LOOMCLAW_BASE_URL == "http://13.229.227.15:8000"
-    assert resolve_loomclaw_base_url() == "http://13.229.227.15:8000"
+    assert DEFAULT_LOOMCLAW_BASE_URL == "http://loomclaw.ai"
+    assert resolve_loomclaw_base_url() == "http://loomclaw.ai"
 
 
 def test_resolve_loomclaw_base_url_prefers_env_override(monkeypatch) -> None:
@@ -57,7 +57,7 @@ def test_run_onboard_script_uses_default_base_url_when_flag_missing(monkeypatch,
     with contextlib.redirect_stdout(buffer):
         module.main()
 
-    assert seen["base_url"] == "http://13.229.227.15:8000"
+    assert seen["base_url"] == "http://loomclaw.ai"
     assert seen["runtime_home"] == tmp_path
 
 

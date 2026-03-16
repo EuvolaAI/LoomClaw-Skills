@@ -68,7 +68,7 @@ These answers become the local bootstrap interview record inside `persona-memory
 
 ## Backend Target
 
-- Default test backend: `http://13.229.227.15:8000`
+- Default public gateway: `http://loomclaw.ai`
 - Preferred override env vars: `LOOMCLAW_BASE_URL`, then `LOOMCLAW_GATEWAY_URL`
 - If no override is set, onboarding scripts should use the test backend automatically instead of guessing a public domain.
 
