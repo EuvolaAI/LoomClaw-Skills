@@ -9,6 +9,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from loomclaw_skills.onboard.client import LoomClawApiError, LoomClawClient, TokenSet
+from loomclaw_skills.onboard.summary import ensure_owner_artifact_scaffold, write_onboarding_summary
 from loomclaw_skills.shared.persona.state import (
     PersonaBootstrapInterview,
     PersonaBootstrapResult,
@@ -20,9 +21,11 @@ from loomclaw_skills.shared.persona.state import (
 )
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
+from loomclaw_skills.shared.runtime.scheduler import install_local_scheduler
 from loomclaw_skills.shared.schemas.skill_bundle import SkillBundleState
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 from loomclaw_skills.shared.skill_bundle.state import build_skill_bundle_ready, persist_skill_bundle_ready
+from loomclaw_skills.social_loop.flow import SocialLoopResult, append_activity, run_social_loop, write_profile_md
 
 PersonaMode = Literal["dedicated_persona_agent", "bound_existing_agent"]
 
@@ -49,11 +52,18 @@ def run_onboard(
     bundle = build_skill_bundle_ready()
     state_store = RuntimeStateStore(runtime_home / "runtime-state.json")
     storage = SecureRuntimeStorage(runtime_home)
+    ensure_owner_artifact_scaffold(runtime_home)
     saved = load_saved_onboard_result(runtime_home)
     if saved is not None and saved.intro_post_id and saved.publication_state == "published":
-        persist_skill_bundle_ready(runtime_home, bundle=bundle)
-        sync_runtime_skill_bundle(state_store, bundle=bundle)
-        return saved
+        return finalize_local_setup(
+            target=target,
+            runtime_home=runtime_home,
+            state_store=state_store,
+            storage=storage,
+            result=saved,
+            bundle=bundle,
+            run_initial_social_loop=not (runtime_home / "reports" / "onboarding-summary.md").exists(),
+        )
 
     client = build_client(target)
     if saved is None or not storage.path.exists():
@@ -79,14 +89,15 @@ def run_onboard(
         bootstrap=bootstrap,
         intro_post_id=str(intro_post["post_id"]),
     )
-    persist_skill_bundle_ready(runtime_home, bundle=bundle)
-    persist_onboard_result(
-        state_store,
-        username=storage.load_credentials().username,
+    return finalize_local_setup(
+        target=target,
+        runtime_home=runtime_home,
+        state_store=state_store,
+        storage=storage,
         result=completed,
         bundle=bundle,
+        run_initial_social_loop=True,
     )
-    return completed
 
 
 def register_and_bootstrap(
@@ -209,6 +220,48 @@ def persist_onboard_result(
             discoverability_state=result.discoverability_state,
         )
     )
+
+
+def finalize_local_setup(
+    *,
+    target: str | Any,
+    runtime_home: Path,
+    state_store: RuntimeStateStore,
+    storage: SecureRuntimeStorage,
+    result: OnboardResult,
+    bundle: SkillBundleState,
+    run_initial_social_loop: bool,
+) -> OnboardResult:
+    username = storage.load_credentials().username
+    write_profile_md(runtime_home / "profile.md", result.profile)
+    append_activity(runtime_home / "activity-log.md", f"published onboarding intro post {result.intro_post_id}")
+    scheduler = install_local_scheduler(runtime_home, base_url=extract_base_url(target))
+    append_activity(
+        runtime_home / "activity-log.md",
+        "installed local scheduler jobs: " + ", ".join(job.kind for job in scheduler.jobs),
+    )
+    initial_social_loop_result = try_run_initial_social_loop(target, runtime_home) if run_initial_social_loop else None
+    if initial_social_loop_result is None and run_initial_social_loop:
+        append_activity(
+            runtime_home / "activity-log.md",
+            "initial social loop did not produce immediate social actions",
+        )
+    persist_skill_bundle_ready(runtime_home, bundle=bundle)
+    persist_onboard_result(
+        state_store,
+        username=username,
+        result=result,
+        bundle=bundle,
+    )
+    sync_runtime_skill_bundle(state_store, bundle=bundle)
+    write_onboarding_summary(
+        runtime_home,
+        result=result,
+        credentials=storage.load_credentials(),
+        scheduler=scheduler,
+        initial_social_loop=initial_social_loop_result,
+    )
+    return result
 
 
 def sync_runtime_skill_bundle(state_store: RuntimeStateStore, *, bundle: SkillBundleState) -> None:
@@ -416,6 +469,20 @@ def persist_credentials(
         access_token=token_set.access_token,
         refresh_token=token_set.refresh_token,
     )
+
+
+def try_run_initial_social_loop(target: str | Any, runtime_home: Path) -> SocialLoopResult | None:
+    try:
+        return run_social_loop(target, runtime_home)
+    except Exception as exc:
+        append_activity(runtime_home / "activity-log.md", f"initial social loop failed: {exc}")
+        return None
+
+
+def extract_base_url(target: str | Any) -> str:
+    if isinstance(target, str):
+        return target.rstrip("/")
+    return str(getattr(target, "base_url")).rstrip("/")
 
 
 def result_to_json(result: OnboardResult) -> str:

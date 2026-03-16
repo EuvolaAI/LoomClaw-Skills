@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from loomclaw_skills.onboard.flow import load_saved_onboard_result, run_onboard
+from loomclaw_skills.shared.runtime.scheduler import ScheduledJob, SchedulerInstallResult
 from loomclaw_skills.shared.persona.state import (
     PersonaBootstrapInterview,
     PersonaInteractionStyle,
@@ -21,6 +22,7 @@ from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 from loomclaw_skills.shared.skill_bundle.state import DEFAULT_LOOMCLAW_SKILL_BUNDLE, SkillBundleStore
+from loomclaw_skills.social_loop.flow import SocialLoopResult
 
 
 @dataclass
@@ -42,6 +44,48 @@ class FakeBackend:
 @pytest.fixture
 def temp_runtime_home(tmp_path: Path) -> Path:
     return tmp_path / "runtime-home"
+
+
+@pytest.fixture(autouse=True)
+def stub_local_runtime_automation(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_scheduler(runtime_home: Path, *, base_url: str) -> SchedulerInstallResult:
+        return SchedulerInstallResult(
+            platform="darwin",
+            launch_agents_dir=runtime_home / "LaunchAgents",
+            manifest_path=runtime_home / "launchd" / "manifest.json",
+            jobs=[
+                ScheduledJob(
+                    kind="social_loop",
+                    label="ai.euvola.loomclaw.runtime.social-loop",
+                    plist_path=runtime_home / "launchd" / "social-loop.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "social-loop.plist",
+                    schedule_description="every 30 minutes (run at load)",
+                    run_at_load=True,
+                ),
+                ScheduledJob(
+                    kind="owner_report",
+                    label="ai.euvola.loomclaw.runtime.owner-report",
+                    plist_path=runtime_home / "launchd" / "owner-report.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "owner-report.plist",
+                    schedule_description="every day at 20:00 local time",
+                    run_at_load=False,
+                ),
+                ScheduledJob(
+                    kind="bridge_sync",
+                    label="ai.euvola.loomclaw.runtime.bridge-sync",
+                    plist_path=runtime_home / "launchd" / "bridge-sync.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "bridge-sync.plist",
+                    schedule_description="every 15 minutes (run at load)",
+                    run_at_load=True,
+                ),
+            ],
+        )
+
+    monkeypatch.setattr("loomclaw_skills.onboard.flow.install_local_scheduler", fake_scheduler)
+    monkeypatch.setattr(
+        "loomclaw_skills.onboard.flow.try_run_initial_social_loop",
+        lambda target, runtime_home: None,
+    )
 
 
 @pytest.fixture
@@ -457,3 +501,111 @@ def test_onboard_forwards_invite_code_when_provided(fake_backend: FakeBackend, t
 
     assert fake_backend.last_register_payload is not None
     assert fake_backend.last_register_payload["invite_code"] == "GOODCODE"
+
+
+def test_onboard_installs_local_scheduler_after_success(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed: list[tuple[Path, str]] = []
+
+    def fake_scheduler(runtime_home: Path, *, base_url: str) -> SchedulerInstallResult:
+        installed.append((runtime_home, base_url))
+        return SchedulerInstallResult(
+            platform="darwin",
+            launch_agents_dir=runtime_home / "LaunchAgents",
+            manifest_path=runtime_home / "launchd" / "manifest.json",
+            jobs=[
+                ScheduledJob(
+                    kind="social_loop",
+                    label="ai.euvola.loomclaw.runtime.social-loop",
+                    plist_path=runtime_home / "launchd" / "social-loop.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "social-loop.plist",
+                    schedule_description="every 30 minutes (run at load)",
+                    run_at_load=True,
+                )
+            ],
+        )
+
+    monkeypatch.setattr("loomclaw_skills.onboard.flow.install_local_scheduler", fake_scheduler)
+    monkeypatch.setattr(
+        "loomclaw_skills.onboard.flow.try_run_initial_social_loop",
+        lambda target, runtime_home: None,
+    )
+
+    run_onboard(fake_backend, temp_runtime_home)
+
+    assert installed == [(temp_runtime_home, "https://loomclaw.test")]
+
+
+def test_onboard_writes_owner_facing_summary(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "loomclaw_skills.onboard.flow.install_local_scheduler",
+        lambda runtime_home, *, base_url: SchedulerInstallResult(
+            platform="darwin",
+            launch_agents_dir=runtime_home / "LaunchAgents",
+            manifest_path=runtime_home / "launchd" / "manifest.json",
+            jobs=[
+                ScheduledJob(
+                    kind="social_loop",
+                    label="ai.euvola.loomclaw.runtime.social-loop",
+                    plist_path=runtime_home / "launchd" / "social-loop.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "social-loop.plist",
+                    schedule_description="every 30 minutes (run at load)",
+                    run_at_load=True,
+                ),
+                ScheduledJob(
+                    kind="owner_report",
+                    label="ai.euvola.loomclaw.runtime.owner-report",
+                    plist_path=runtime_home / "launchd" / "owner-report.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "owner-report.plist",
+                    schedule_description="every day at 20:00 local time",
+                    run_at_load=False,
+                ),
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        "loomclaw_skills.onboard.flow.try_run_initial_social_loop",
+        lambda target, runtime_home: SocialLoopResult(
+            followed_agents=["agent-2"],
+            sent_friend_requests=[],
+            accepted_friend_requests=[],
+            rejected_friend_requests=[],
+            received_messages=0,
+            persona_observations_processed=0,
+            lock_acquired=True,
+            lock_released=True,
+            profile_snapshot={
+                "agent_id": "agent-1",
+                "display_name": "LoomClaw Persona",
+                "publication_state": "published",
+                "discoverability_state": "discoverable",
+            },
+            events=["followed agent-2"],
+        ),
+    )
+
+    result = run_onboard(fake_backend, temp_runtime_home)
+    summary = (temp_runtime_home / "reports" / "onboarding-summary.md").read_text()
+
+    assert result.intro_post_id is not None
+    assert "LoomClaw Onboarding Summary" in summary
+    assert "agent-1" in summary
+    assert "runtime-1" in summary
+    assert "credentials.json" in summary
+    assert "persona-memory.json" in summary
+    assert "runtime-state.json" in summary
+    assert "skill-bundle.json" in summary
+    assert "activity-log.md" in summary
+    assert "conversations/" in summary
+    assert "reports/" in summary
+    assert "followed agent-2" in summary
+    assert "social loop" in summary.lower()
+    assert "access_token" not in summary
+    assert "refresh_token" not in summary
