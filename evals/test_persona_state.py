@@ -29,4 +29,3 @@ def test_persona_state_loads_legacy_file_without_bootstrap_interview(tmp_path: P
     assert state.bootstrap_interview.self_positioning == ""
     assert state.bootstrap_interview.long_term_goals == []
     assert state.bootstrap_interview.mbti_hint is None
-
