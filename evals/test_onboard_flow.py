@@ -9,7 +9,14 @@ import httpx
 import pytest
 
 from loomclaw_skills.onboard.flow import load_saved_onboard_result, run_onboard
-from loomclaw_skills.shared.persona.state import PersonaPublicProfileDraft, PersonaState, PersonaStateStore
+from loomclaw_skills.shared.persona.state import (
+    PersonaBootstrapInterview,
+    PersonaInteractionStyle,
+    PersonaPublicProfileDraft,
+    PersonaSocialCadence,
+    PersonaState,
+    PersonaStateStore,
+)
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
@@ -226,8 +233,15 @@ def test_onboard_persists_structured_persona_bootstrap_answers(
     assert persona.bootstrap_interview.social_cadence.connection_depth == "few_deep_connections"
     assert persona.bootstrap_interview.core_values == ["curiosity", "autonomy", "care"]
     assert persona.bootstrap_interview.mbti_hint == "INFP"
+    assert "A calm systems thinker" not in str(result.profile["bio"])
+    assert "build enduring relationships" not in str(result.profile["bio"])
+    assert "curious builders" not in str(result.profile["bio"])
     assert "never share secrets" not in str(result.profile["bio"])
     assert "owner identity" not in str(result.profile["bio"])
+    intro_post = fake_backend.posts[str(result.intro_post_id)]
+    assert "A calm systems thinker" not in intro_post["content_md"]
+    assert "build enduring relationships" not in intro_post["content_md"]
+    assert "curious builders" not in intro_post["content_md"]
 
 
 def test_onboard_skips_mbti_when_not_provided(
@@ -272,6 +286,54 @@ def test_onboard_restart_uses_persisted_bootstrap_interview(
 
     assert persona is not None
     assert persona.bootstrap_interview.self_positioning == "First answer"
+
+
+def test_onboard_resumes_from_persona_memory_without_overwriting_answers_after_partial_crash(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    PersonaStateStore(temp_runtime_home / "persona-memory.json").save(
+        PersonaState(
+            persona_id="persona-crash",
+            persona_mode="dedicated_persona_agent",
+            active_agent_ref="loomclaw-persona::crash",
+            public_profile_draft=PersonaPublicProfileDraft(
+                display_name="Crash Persona",
+                bio="Private local persona summary",
+            ),
+            bootstrap_interview=PersonaBootstrapInterview(
+                self_positioning="Original answer",
+                long_term_goals=["original goal"],
+                relationship_targets=["original relationship target"],
+                interaction_style=PersonaInteractionStyle(
+                    directness="gentle",
+                    pace="exploratory",
+                    expressiveness="reserved",
+                ),
+                social_cadence=PersonaSocialCadence(
+                    connection_depth="few_deep_connections",
+                    tempo="slow_async",
+                ),
+                core_values=["curiosity"],
+                private_boundaries=["never reveal owner identity"],
+                owner_intervention_rules=["ask before human bridge"],
+                mbti_hint="INFJ",
+            ),
+            learning_objectives=[],
+        )
+    )
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "Changed answer")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_LONG_TERM_GOALS", "changed goal")
+
+    result = run_onboard(fake_backend, temp_runtime_home)
+    persona = PersonaStateStore(temp_runtime_home / "persona-memory.json").load()
+
+    assert result.persona_id == "persona-crash"
+    assert persona is not None
+    assert persona.bootstrap_interview.self_positioning == "Original answer"
+    assert persona.bootstrap_interview.long_term_goals == ["original goal"]
+    assert persona.public_profile_draft.display_name == "Crash Persona"
 
 
 def test_onboard_resume_refreshes_saved_tokens_before_finishing_partial_state(

@@ -191,6 +191,15 @@ def persist_onboard_result(state_store: RuntimeStateStore, *, username: str, res
 
 
 def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = False) -> PersonaBootstrapResult:
+    existing_state = PersonaStateStore(runtime_home / "persona-memory.json").load()
+    if existing_state is not None:
+        return PersonaBootstrapResult(
+            persona_id=existing_state.persona_id,
+            persona_mode=existing_state.persona_mode,
+            active_agent_ref=existing_state.active_agent_ref,
+            draft_profile=existing_state.public_profile_draft,
+        )
+
     mode, active_agent_ref = resolve_persona_mode(force_bind_existing=force_bind_existing)
     interview = run_initial_persona_interview()
     profile_draft = render_public_profile_draft(interview)
@@ -254,18 +263,19 @@ def render_public_profile_draft(interview: PersonaBootstrapInterview) -> Persona
 
 def render_public_bio_from_interview(interview: PersonaBootstrapInterview) -> str:
     segments: list[str] = []
-    if interview.self_positioning:
-        segments.append(interview.self_positioning)
-    if interview.long_term_goals:
-        segments.append(f"Long-term goals: {', '.join(interview.long_term_goals[:3])}.")
-    if interview.relationship_targets:
-        segments.append(f"Looking to meet: {', '.join(interview.relationship_targets[:3])}.")
+    if interview.long_term_goals or interview.relationship_targets:
+        segments.append(
+            "A LoomClaw social persona oriented toward long-horizon goals and aligned, thoughtful relationships."
+        )
+    elif interview.self_positioning or interview.core_values:
+        segments.append("A LoomClaw social persona shaped around a stable local persona layer.")
     style = interview.interaction_style
     cadence = interview.social_cadence
     segments.append(
         "Social style: "
-        f"{style.directness}, {style.pace}, {style.expressiveness}; "
-        f"prefers {cadence.connection_depth} and {cadence.tempo} communication."
+        f"{describe_style_token(style.directness)}, {describe_style_token(style.pace)}, "
+        f"{describe_style_token(style.expressiveness)}; prefers "
+        f"{describe_connection_depth(cadence.connection_depth)} and {describe_tempo(cadence.tempo)} communication."
     )
     if not segments:
         return (
@@ -273,6 +283,36 @@ def render_public_bio_from_interview(interview: PersonaBootstrapInterview) -> st
             "before entering the public network."
         )
     return " ".join(segment.strip() for segment in segments if segment.strip())
+
+
+def describe_style_token(value: str) -> str:
+    mapping = {
+        "gentle": "gentle",
+        "direct": "direct",
+        "exploratory": "exploratory",
+        "decisive": "decisive",
+        "reserved": "reserved",
+        "expressive": "expressive",
+    }
+    return mapping.get(value, "measured")
+
+
+def describe_connection_depth(value: str) -> str:
+    mapping = {
+        "few_deep_connections": "fewer, deeper connections",
+        "balanced": "a balanced relationship depth",
+        "broad_light_network": "a broader, lighter network",
+    }
+    return mapping.get(value, "a balanced relationship depth")
+
+
+def describe_tempo(value: str) -> str:
+    mapping = {
+        "slow_async": "slow, async",
+        "moderate": "steady",
+        "active": "active",
+    }
+    return mapping.get(value, "steady")
 
 
 def read_list_env(name: str) -> list[str]:
