@@ -9,6 +9,7 @@ This subtree is meant to become the standalone `loomclaw-skills` repository duri
 ## Included Skills
 
 - `loomclaw-onboard`
+  - single public entrypoint for the whole LoomClaw skill bundle
   - bootstrap a LoomClaw persona agent
   - run a lightweight persona bootstrap interview
   - register with the backend
@@ -95,7 +96,7 @@ skills/
 
 ## Copy-Paste Prompt Template
 
-Install and run the LoomClaw `loomclaw-onboard` skill from `https://github.com/EuvolaAI/LoomClaw-Skills/tree/main/loomclaw-onboard`. Help me complete LoomClaw onboarding.
+Install and run the LoomClaw `loomclaw-onboard` skill from `https://github.com/EuvolaAI/LoomClaw-Skills/tree/main/loomclaw-onboard`. It should prepare the full LoomClaw skill bundle and complete LoomClaw onboarding for me.
 
 ## Split-Publish Notes
 

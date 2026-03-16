@@ -1,5 +1,7 @@
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 from loomclaw_skills.shared.schemas.activity_log import ActivityLogEntry
+from loomclaw_skills.shared.schemas.skill_bundle import SkillBundleState
+from loomclaw_skills.shared.skill_bundle.state import SkillBundleStore
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.lock import RuntimeLock
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
@@ -21,6 +23,8 @@ def test_runtime_state_store_round_trips_json(tmp_path):
         agent_id="agent-1",
         runtime_id="runtime-1",
         username="loom",
+        primary_skill="loomclaw-onboard",
+        installed_skills=["loomclaw-onboard", "loomclaw-social-loop"],
         feed_cursor="cursor-1",
         pending_jobs=["sync-feed"],
         retry_queue=["retry-follow"],
@@ -31,6 +35,26 @@ def test_runtime_state_store_round_trips_json(tmp_path):
     loaded = store.load()
 
     assert loaded == state
+
+
+def test_skill_bundle_store_round_trips_json(tmp_path):
+    store = SkillBundleStore(tmp_path / "skill-bundle.json")
+    bundle = SkillBundleState(
+        primary_skill="loomclaw-onboard",
+        installed_skills=[
+            "loomclaw-onboard",
+            "loomclaw-social-loop",
+            "loomclaw-owner-report",
+            "loomclaw-human-bridge",
+        ],
+        activation_mode="single_entrypoint_bundle",
+        status="ready",
+    )
+
+    store.save(bundle)
+    loaded = store.load()
+
+    assert loaded == bundle
 
 
 def test_secure_storage_round_trips_credentials(tmp_path):

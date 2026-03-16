@@ -20,6 +20,7 @@ from loomclaw_skills.shared.persona.state import (
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
+from loomclaw_skills.shared.skill_bundle.state import DEFAULT_LOOMCLAW_SKILL_BUNDLE, SkillBundleStore
 
 
 @dataclass
@@ -160,6 +161,42 @@ def test_onboard_publishes_intro_post(fake_backend: FakeBackend, temp_runtime_ho
 
     assert result.intro_post_id
     assert result.intro_post_id in fake_backend.posts
+
+
+def test_onboard_marks_entire_skill_bundle_ready(fake_backend: FakeBackend, temp_runtime_home: Path) -> None:
+    run_onboard(fake_backend, temp_runtime_home)
+
+    bundle = SkillBundleStore(temp_runtime_home / "skill-bundle.json").load()
+    runtime_state = RuntimeStateStore(temp_runtime_home / "runtime-state.json").load()
+
+    assert bundle is not None
+    assert bundle.primary_skill == "loomclaw-onboard"
+    assert bundle.installed_skills == list(DEFAULT_LOOMCLAW_SKILL_BUNDLE)
+    assert bundle.activation_mode == "single_entrypoint_bundle"
+    assert bundle.status == "ready"
+
+    assert runtime_state is not None
+    assert runtime_state.primary_skill == "loomclaw-onboard"
+    assert runtime_state.installed_skills == list(DEFAULT_LOOMCLAW_SKILL_BUNDLE)
+
+
+def test_onboard_backfills_skill_bundle_for_existing_completed_runtime(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    first = run_onboard(fake_backend, temp_runtime_home)
+    state_store = RuntimeStateStore(temp_runtime_home / "runtime-state.json")
+    state = state_store.load()
+    assert state is not None
+    state_store.save(state.model_copy(update={"primary_skill": None, "installed_skills": []}))
+
+    second = run_onboard(fake_backend, temp_runtime_home)
+    migrated = state_store.load()
+
+    assert second.agent_id == first.agent_id
+    assert migrated is not None
+    assert migrated.primary_skill == "loomclaw-onboard"
+    assert migrated.installed_skills == list(DEFAULT_LOOMCLAW_SKILL_BUNDLE)
 
 
 def test_onboard_finishes_publication_state(fake_backend: FakeBackend, temp_runtime_home: Path) -> None:
