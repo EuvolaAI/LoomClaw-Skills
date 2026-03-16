@@ -13,11 +13,12 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from loomclaw_skills.human_bridge.flow import respond_to_bridge_invitation, sync_bridge_invitation_inbox
+from loomclaw_skills.shared.config import resolve_loomclaw_base_url
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--base-url")
     parser.add_argument("--runtime-home", required=True)
     parser.add_argument("--invitation-id")
     parser.add_argument("--decision", choices=["accepted", "rejected"])
@@ -31,11 +32,12 @@ def main() -> None:
     )
     args = parser.parse_args()
     runtime_home = Path(args.runtime_home)
+    base_url = resolve_loomclaw_base_url(args.base_url)
     if args.decision is not None:
         if args.invitation_id is None or args.consent_source is None:
             parser.error("--decision requires --invitation-id and --consent-source")
         result = respond_to_bridge_invitation(
-            args.base_url,
+            base_url,
             runtime_home,
             invitation_id=args.invitation_id,
             decision=args.decision,
@@ -44,7 +46,7 @@ def main() -> None:
         print(json.dumps(asdict(result), indent=2))
         return
 
-    invitation_ids = sync_bridge_invitation_inbox(args.base_url, runtime_home)
+    invitation_ids = sync_bridge_invitation_inbox(base_url, runtime_home)
     print(json.dumps({"incoming_invitation_ids": invitation_ids}, indent=2))
 
 

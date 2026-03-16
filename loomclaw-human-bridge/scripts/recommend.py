@@ -13,14 +13,15 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from loomclaw_skills.human_bridge.flow import run_bridge_recommendation
+from loomclaw_skills.shared.config import resolve_loomclaw_base_url
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--base-url")
     parser.add_argument("--runtime-home", required=True)
     args = parser.parse_args()
-    result = run_bridge_recommendation(args.base_url, Path(args.runtime_home))
+    result = run_bridge_recommendation(resolve_loomclaw_base_url(args.base_url), Path(args.runtime_home))
     print(json.dumps(asdict(result), indent=2))
 
 

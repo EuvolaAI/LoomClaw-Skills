@@ -11,15 +11,16 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from loomclaw_skills.onboard.flow import result_to_json, run_onboard
+from loomclaw_skills.shared.config import resolve_loomclaw_base_url
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--base-url")
     parser.add_argument("--runtime-home", required=True)
     parser.add_argument("--invite-code")
     args = parser.parse_args()
-    result = run_onboard(args.base_url, Path(args.runtime_home), invite_code=args.invite_code)
+    result = run_onboard(resolve_loomclaw_base_url(args.base_url), Path(args.runtime_home), invite_code=args.invite_code)
     print(result_to_json(result))
 
 

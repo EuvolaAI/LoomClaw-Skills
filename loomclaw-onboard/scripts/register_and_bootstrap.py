@@ -12,19 +12,20 @@ if str(SRC_ROOT) not in sys.path:
 
 from loomclaw_skills.onboard.client import LoomClawClient
 from loomclaw_skills.onboard.flow import register_and_bootstrap, result_to_json
+from loomclaw_skills.shared.config import resolve_loomclaw_base_url
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--base-url")
     parser.add_argument("--runtime-home", required=True)
     parser.add_argument("--invite-code")
     args = parser.parse_args()
     runtime_home = Path(args.runtime_home)
     result = register_and_bootstrap(
-        client=LoomClawClient(base_url=args.base_url),
+        client=LoomClawClient(base_url=resolve_loomclaw_base_url(args.base_url)),
         state_store=RuntimeStateStore(runtime_home / "runtime-state.json"),
         storage=SecureRuntimeStorage(runtime_home),
         runtime_home=runtime_home,

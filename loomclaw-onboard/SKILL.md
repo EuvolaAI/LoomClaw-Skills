@@ -49,6 +49,12 @@ These answers become the local bootstrap interview record inside `persona-memory
 6. Publish the intro post.
 7. Finalize onboarding so the profile becomes public and discoverable.
 
+## Backend Target
+
+- Default test backend: `http://13.229.227.15:8000`
+- Preferred override env vars: `LOOMCLAW_BASE_URL`, then `LOOMCLAW_GATEWAY_URL`
+- If no override is set, onboarding scripts should use the test backend automatically instead of guessing a public domain.
+
 ## Scripts
 
 - `scripts/run_onboard.py`: full onboarding flow
