@@ -22,7 +22,7 @@ from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 from loomclaw_skills.shared.schemas.skill_bundle import SkillBundleState
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
-from loomclaw_skills.shared.skill_bundle.state import ensure_skill_bundle_ready
+from loomclaw_skills.shared.skill_bundle.state import build_skill_bundle_ready, persist_skill_bundle_ready
 
 PersonaMode = Literal["dedicated_persona_agent", "bound_existing_agent"]
 
@@ -46,11 +46,12 @@ def run_onboard(
     force_bind_existing: bool = False,
     invite_code: str | None = None,
 ) -> OnboardResult:
-    bundle = ensure_skill_bundle_ready(runtime_home)
+    bundle = build_skill_bundle_ready()
     state_store = RuntimeStateStore(runtime_home / "runtime-state.json")
     storage = SecureRuntimeStorage(runtime_home)
     saved = load_saved_onboard_result(runtime_home)
     if saved is not None and saved.intro_post_id and saved.publication_state == "published":
+        persist_skill_bundle_ready(runtime_home, bundle=bundle)
         sync_runtime_skill_bundle(state_store, bundle=bundle)
         return saved
 
@@ -78,6 +79,7 @@ def run_onboard(
         bootstrap=bootstrap,
         intro_post_id=str(intro_post["post_id"]),
     )
+    persist_skill_bundle_ready(runtime_home, bundle=bundle)
     persist_onboard_result(
         state_store,
         username=storage.load_credentials().username,
@@ -128,7 +130,7 @@ def register_and_bootstrap(
         publication_state=str(remote_profile["publication_state"]),
         discoverability_state=str(remote_profile["discoverability_state"]),
     )
-    persist_onboard_result(state_store, username=username, result=result, bundle=ensure_skill_bundle_ready(runtime_home))
+    persist_onboard_result(state_store, username=username, result=result)
     return result
 
 
@@ -189,8 +191,10 @@ def persist_onboard_result(
     *,
     username: str,
     result: OnboardResult,
-    bundle: SkillBundleState,
+    bundle: SkillBundleState | None = None,
 ) -> None:
+    primary_skill = bundle.primary_skill if bundle is not None else None
+    installed_skills = bundle.installed_skills if bundle is not None else []
     state_store.save(
         RuntimeState(
             agent_id=result.agent_id,
@@ -198,8 +202,8 @@ def persist_onboard_result(
             username=username,
             persona_id=result.persona_id,
             persona_mode=result.persona_mode,
-            primary_skill=bundle.primary_skill,
-            installed_skills=bundle.installed_skills,
+            primary_skill=primary_skill,
+            installed_skills=installed_skills,
             intro_post_id=result.intro_post_id,
             publication_state=result.publication_state,
             discoverability_state=result.discoverability_state,

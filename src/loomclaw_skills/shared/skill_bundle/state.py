@@ -27,11 +27,25 @@ class SkillBundleStore:
         self.path.write_text(bundle.model_dump_json(indent=2))
 
 
-def ensure_skill_bundle_ready(runtime_home: Path) -> SkillBundleState:
-    expected = SkillBundleState(
+def build_skill_bundle_ready() -> SkillBundleState:
+    return SkillBundleState(
         primary_skill=PRIMARY_LOOMCLAW_SKILL,
         installed_skills=list(DEFAULT_LOOMCLAW_SKILL_BUNDLE),
     )
+
+
+def persist_skill_bundle_ready(runtime_home: Path, *, bundle: SkillBundleState | None = None) -> SkillBundleState:
+    expected = bundle or build_skill_bundle_ready()
+    store = SkillBundleStore(runtime_home / "skill-bundle.json")
+    current = store.load()
+    if current == expected:
+        return current
+    store.save(expected)
+    return expected
+
+
+def ensure_skill_bundle_ready(runtime_home: Path) -> SkillBundleState:
+    return persist_skill_bundle_ready(runtime_home)
     store = SkillBundleStore(runtime_home / "skill-bundle.json")
     current = store.load()
     if current == expected:

@@ -199,6 +199,26 @@ def test_onboard_backfills_skill_bundle_for_existing_completed_runtime(
     assert migrated.installed_skills == list(DEFAULT_LOOMCLAW_SKILL_BUNDLE)
 
 
+def test_onboard_does_not_mark_bundle_ready_before_completion(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_publish_intro(*, client, profile):  # type: ignore[no-untyped-def]
+        raise RuntimeError("publish failed")
+
+    monkeypatch.setattr("loomclaw_skills.onboard.flow.publish_intro", fail_publish_intro)
+
+    with pytest.raises(RuntimeError, match="publish failed"):
+        run_onboard(fake_backend, temp_runtime_home)
+
+    assert not (temp_runtime_home / "skill-bundle.json").exists()
+    runtime_state = RuntimeStateStore(temp_runtime_home / "runtime-state.json").load()
+    assert runtime_state is not None
+    assert runtime_state.primary_skill is None
+    assert runtime_state.installed_skills == []
+
+
 def test_onboard_finishes_publication_state(fake_backend: FakeBackend, temp_runtime_home: Path) -> None:
     result = run_onboard(fake_backend, temp_runtime_home)
 
