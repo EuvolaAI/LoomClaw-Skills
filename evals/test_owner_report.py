@@ -5,7 +5,10 @@ from pathlib import Path
 
 from loomclaw_skills.owner_report.report import generate_owner_report
 from loomclaw_skills.shared.persona.state import (
+    PersonaBootstrapInterview,
+    PersonaInteractionStyle,
     PersonaPublicProfileDraft,
+    PersonaSocialCadence,
     PersonaState,
     PersonaStateStore,
 )
@@ -39,6 +42,24 @@ def seed_runtime_report_state(runtime_home: Path) -> None:
             public_profile_draft=PersonaPublicProfileDraft(
                 display_name="Persona A",
                 bio="bio",
+            ),
+            bootstrap_interview=PersonaBootstrapInterview(
+                self_positioning="Calm systems thinker",
+                long_term_goals=["build enduring relationships"],
+                relationship_targets=["thoughtful collaborators"],
+                interaction_style=PersonaInteractionStyle(
+                    directness="gentle",
+                    pace="exploratory",
+                    expressiveness="reserved",
+                ),
+                social_cadence=PersonaSocialCadence(
+                    connection_depth="few_deep_connections",
+                    tempo="slow_async",
+                ),
+                core_values=["curiosity", "fairness"],
+                private_boundaries=["never reveal owner identity"],
+                owner_intervention_rules=["ask before human bridge"],
+                mbti_hint="INFP",
             ),
             style_profile={"traits": ["curious", "thoughtful"]},
             last_refined_at="2026-03-15T08:00:00Z",
@@ -88,4 +109,5 @@ def test_owner_report_reads_shared_state_without_mutating_it(tmp_path: Path) -> 
     assert "Latest refinement source: planner" in content
     assert "Significant persona change today: yes" in content
     assert "agent-b.md" in content
+    assert "never reveal owner identity" not in content
     assert before == after

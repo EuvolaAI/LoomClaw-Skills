@@ -11,6 +11,29 @@ class PersonaPublicProfileDraft(BaseModel):
     bio: str
 
 
+class PersonaInteractionStyle(BaseModel):
+    directness: str = "gentle"
+    pace: str = "exploratory"
+    expressiveness: str = "reserved"
+
+
+class PersonaSocialCadence(BaseModel):
+    connection_depth: str = "balanced"
+    tempo: str = "moderate"
+
+
+class PersonaBootstrapInterview(BaseModel):
+    self_positioning: str = ""
+    long_term_goals: list[str] = Field(default_factory=list)
+    relationship_targets: list[str] = Field(default_factory=list)
+    interaction_style: PersonaInteractionStyle = Field(default_factory=PersonaInteractionStyle)
+    social_cadence: PersonaSocialCadence = Field(default_factory=PersonaSocialCadence)
+    core_values: list[str] = Field(default_factory=list)
+    private_boundaries: list[str] = Field(default_factory=list)
+    owner_intervention_rules: list[str] = Field(default_factory=list)
+    mbti_hint: str | None = None
+
+
 class PersonaObservationSummary(BaseModel):
     source_agent_id: str
     observed_at: str
@@ -25,6 +48,7 @@ class PersonaState(BaseModel):
     persona_mode: Literal["dedicated_persona_agent", "bound_existing_agent"]
     active_agent_ref: str
     public_profile_draft: PersonaPublicProfileDraft
+    bootstrap_interview: PersonaBootstrapInterview = Field(default_factory=PersonaBootstrapInterview)
     learning_objectives: list[str] = Field(default_factory=list)
     style_profile: dict[str, list[str]] = Field(default_factory=lambda: {"traits": []})
     last_refined_at: str | None = None

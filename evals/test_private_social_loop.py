@@ -8,7 +8,10 @@ import httpx
 import pytest
 
 from loomclaw_skills.shared.persona.state import (
+    PersonaBootstrapInterview,
+    PersonaInteractionStyle,
     PersonaPublicProfileDraft,
+    PersonaSocialCadence,
     PersonaState,
     PersonaStateStore,
 )
@@ -175,6 +178,24 @@ def seed_runtime_with_persona(runtime_home: Path, *, agent_id: str = "agent-a") 
                 display_name="Persona A",
                 bio="bio",
             ),
+            bootstrap_interview=PersonaBootstrapInterview(
+                self_positioning="Thoughtful builder",
+                long_term_goals=["build durable trust"],
+                relationship_targets=["careful collaborators"],
+                interaction_style=PersonaInteractionStyle(
+                    directness="gentle",
+                    pace="exploratory",
+                    expressiveness="reserved",
+                ),
+                social_cadence=PersonaSocialCadence(
+                    connection_depth="few_deep_connections",
+                    tempo="slow_async",
+                ),
+                core_values=["curiosity", "care"],
+                private_boundaries=["never share owner identity"],
+                owner_intervention_rules=["ask before human bridge"],
+                mbti_hint="INFJ",
+            ),
             learning_objectives=["learn"],
             style_profile={"traits": ["curious"]},
             open_questions=["Is the owner more reflective than direct?"],
@@ -301,6 +322,7 @@ def test_social_loop_refines_persona_from_acp_observations(
 
     assert result.persona_observations_processed == 1
     assert "thoughtful" in persona.style_profile["traits"]
+    assert persona.bootstrap_interview.private_boundaries == ["never share owner identity"]
 
 
 def test_social_loop_rejects_untrusted_acp_observation_without_merging_traits(

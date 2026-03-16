@@ -10,8 +10,11 @@ from uuid import uuid4
 
 from loomclaw_skills.onboard.client import LoomClawApiError, LoomClawClient, TokenSet
 from loomclaw_skills.shared.persona.state import (
+    PersonaBootstrapInterview,
     PersonaBootstrapResult,
+    PersonaInteractionStyle,
     PersonaPublicProfileDraft,
+    PersonaSocialCadence,
     PersonaState,
     PersonaStateStore,
 )
@@ -190,15 +193,13 @@ def persist_onboard_result(state_store: RuntimeStateStore, *, username: str, res
 def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = False) -> PersonaBootstrapResult:
     mode, active_agent_ref = resolve_persona_mode(force_bind_existing=force_bind_existing)
     interview = run_initial_persona_interview()
-    profile_draft = PersonaPublicProfileDraft(
-        display_name=str(interview["display_name"]),
-        bio=str(interview["bio"]),
-    )
+    profile_draft = render_public_profile_draft(interview)
     persona_state = PersonaState(
         persona_id=f"persona-{uuid4().hex[:12]}",
         persona_mode=mode,
         active_agent_ref=active_agent_ref,
         public_profile_draft=profile_draft,
+        bootstrap_interview=interview,
         learning_objectives=[
             "通过 ACP 与其他协作 agent 交换结构化主人画像摘要",
             "在必要时向主人确认高不确定性的风格判断",
@@ -219,13 +220,74 @@ def resolve_persona_mode(*, force_bind_existing: bool = False) -> tuple[PersonaM
     return "dedicated_persona_agent", f"loomclaw-persona::{uuid4().hex[:8]}"
 
 
-def run_initial_persona_interview() -> dict[str, str]:
-    display_name = os.getenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "LoomClaw Persona")
-    bio = os.getenv(
-        "LOOMCLAW_PERSONA_BIO",
-        "A LoomClaw social persona that learns the owner's style inside OpenClaw before entering the public network.",
+def run_initial_persona_interview() -> PersonaBootstrapInterview:
+    return PersonaBootstrapInterview(
+        self_positioning=os.getenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "").strip(),
+        long_term_goals=read_list_env("LOOMCLAW_PERSONA_LONG_TERM_GOALS"),
+        relationship_targets=read_list_env("LOOMCLAW_PERSONA_RELATIONSHIP_TARGETS"),
+        interaction_style=PersonaInteractionStyle(
+            directness=os.getenv("LOOMCLAW_PERSONA_INTERACTION_DIRECTNESS", "gentle").strip() or "gentle",
+            pace=os.getenv("LOOMCLAW_PERSONA_INTERACTION_PACE", "exploratory").strip() or "exploratory",
+            expressiveness=os.getenv("LOOMCLAW_PERSONA_INTERACTION_EXPRESSIVENESS", "reserved").strip()
+            or "reserved",
+        ),
+        social_cadence=PersonaSocialCadence(
+            connection_depth=os.getenv("LOOMCLAW_PERSONA_SOCIAL_CONNECTION_DEPTH", "balanced").strip() or "balanced",
+            tempo=os.getenv("LOOMCLAW_PERSONA_SOCIAL_TEMPO", "moderate").strip() or "moderate",
+        ),
+        core_values=read_list_env("LOOMCLAW_PERSONA_CORE_VALUES"),
+        private_boundaries=read_list_env("LOOMCLAW_PERSONA_PRIVATE_BOUNDARIES"),
+        owner_intervention_rules=read_list_env("LOOMCLAW_PERSONA_OWNER_INTERVENTION_RULES"),
+        mbti_hint=read_optional_env("LOOMCLAW_PERSONA_MBTI"),
     )
-    return {"display_name": display_name, "bio": bio}
+
+
+def render_public_profile_draft(interview: PersonaBootstrapInterview) -> PersonaPublicProfileDraft:
+    display_name = os.getenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "LoomClaw Persona").strip() or "LoomClaw Persona"
+    bio_override = read_optional_env("LOOMCLAW_PERSONA_BIO")
+    if bio_override is not None:
+        bio = bio_override
+    else:
+        bio = render_public_bio_from_interview(interview)
+    return PersonaPublicProfileDraft(display_name=display_name, bio=bio)
+
+
+def render_public_bio_from_interview(interview: PersonaBootstrapInterview) -> str:
+    segments: list[str] = []
+    if interview.self_positioning:
+        segments.append(interview.self_positioning)
+    if interview.long_term_goals:
+        segments.append(f"Long-term goals: {', '.join(interview.long_term_goals[:3])}.")
+    if interview.relationship_targets:
+        segments.append(f"Looking to meet: {', '.join(interview.relationship_targets[:3])}.")
+    style = interview.interaction_style
+    cadence = interview.social_cadence
+    segments.append(
+        "Social style: "
+        f"{style.directness}, {style.pace}, {style.expressiveness}; "
+        f"prefers {cadence.connection_depth} and {cadence.tempo} communication."
+    )
+    if not segments:
+        return (
+            "A LoomClaw social persona that learns the owner's style inside OpenClaw "
+            "before entering the public network."
+        )
+    return " ".join(segment.strip() for segment in segments if segment.strip())
+
+
+def read_list_env(name: str) -> list[str]:
+    raw = os.getenv(name, "")
+    if not raw.strip():
+        return []
+    return [item.strip() for item in raw.split("|") if item.strip()]
+
+
+def read_optional_env(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 
 def render_intro_post(profile: dict[str, object]) -> str:

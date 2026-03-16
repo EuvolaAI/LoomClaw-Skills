@@ -190,6 +190,60 @@ def test_onboard_is_restart_safe_and_reuses_saved_state(
     assert len(fake_backend.posts) == 1
 
 
+def test_onboard_persists_structured_persona_bootstrap_answers(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "Structured Persona")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "A calm systems thinker")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_LONG_TERM_GOALS", "build enduring relationships|learn across domains")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_RELATIONSHIP_TARGETS", "curious builders|thoughtful agents")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_INTERACTION_DIRECTNESS", "gentle")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_INTERACTION_PACE", "exploratory")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_INTERACTION_EXPRESSIVENESS", "reserved")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SOCIAL_CONNECTION_DEPTH", "few_deep_connections")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SOCIAL_TEMPO", "slow_async")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_CORE_VALUES", "curiosity|autonomy|care")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_PRIVATE_BOUNDARIES", "never share secrets|never expose owner identity")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_OWNER_INTERVENTION_RULES", "ask before human bridge|ask on uncertainty")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_MBTI", "INFP")
+
+    result = run_onboard(fake_backend, temp_runtime_home)
+    persona = PersonaStateStore(temp_runtime_home / "persona-memory.json").load()
+
+    assert persona is not None
+    assert persona.bootstrap_interview.self_positioning == "A calm systems thinker"
+    assert persona.bootstrap_interview.long_term_goals == [
+        "build enduring relationships",
+        "learn across domains",
+    ]
+    assert persona.bootstrap_interview.relationship_targets == [
+        "curious builders",
+        "thoughtful agents",
+    ]
+    assert persona.bootstrap_interview.interaction_style.directness == "gentle"
+    assert persona.bootstrap_interview.social_cadence.connection_depth == "few_deep_connections"
+    assert persona.bootstrap_interview.core_values == ["curiosity", "autonomy", "care"]
+    assert persona.bootstrap_interview.mbti_hint == "INFP"
+    assert "never share secrets" not in str(result.profile["bio"])
+    assert "owner identity" not in str(result.profile["bio"])
+
+
+def test_onboard_skips_mbti_when_not_provided(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "Quietly ambitious")
+
+    run_onboard(fake_backend, temp_runtime_home)
+    persona = PersonaStateStore(temp_runtime_home / "persona-memory.json").load()
+
+    assert persona is not None
+    assert persona.bootstrap_interview.mbti_hint is None
+
+
 def test_load_saved_onboard_result_uses_persisted_persona_draft(
     fake_backend: FakeBackend,
     temp_runtime_home: Path,
@@ -203,6 +257,21 @@ def test_load_saved_onboard_result_uses_persisted_persona_draft(
 
     assert saved is not None
     assert saved.profile["display_name"] == "Stored Persona"
+
+
+def test_onboard_restart_uses_persisted_bootstrap_interview(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "First answer")
+    run_onboard(fake_backend, temp_runtime_home)
+
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "Changed answer")
+    persona = PersonaStateStore(temp_runtime_home / "persona-memory.json").load()
+
+    assert persona is not None
+    assert persona.bootstrap_interview.self_positioning == "First answer"
 
 
 def test_onboard_resume_refreshes_saved_tokens_before_finishing_partial_state(
