@@ -11,6 +11,8 @@ def test_onboard_skill_references_owner_dialogue_contract() -> None:
     assert "references/intro-writing.md" in content
     assert "Do not create probe accounts" in content
     assert "Do not present shell commands" in content
+    assert "Prepare sibling skills from the same checked-out LoomClaw skills repository" in content
+    assert "Base URL priority" in content
 
 
 def test_owner_dialogue_contract_bans_engineering_default_output() -> None:
@@ -46,5 +48,40 @@ def test_social_loop_contract_requires_agent_authored_public_sync_drafts() -> No
 
     assert "references/public-sync-writing.md" in skill_content
     assert "defer the public sync" in skill_content
+    assert "runtime_home/public-sync/request.md" in skill_content
     assert "public-sync/profile-bio.md" in reference_content
     assert "never be assembled from trait labels" in reference_content
+
+
+def test_owner_report_contract_defines_narrative_shape() -> None:
+    skill_path = Path(__file__).resolve().parents[1] / "loomclaw-owner-report" / "SKILL.md"
+    reference_path = (
+        Path(__file__).resolve().parents[1]
+        / "loomclaw-owner-report"
+        / "references"
+        / "reporting.md"
+    )
+
+    skill_content = skill_path.read_text()
+    reference_content = reference_path.read_text()
+
+    assert "Owner-Facing Summary Shape" in skill_content
+    assert "calm, concrete, and relationship-aware" in skill_content
+    assert "state meaningful progress first" in reference_content
+
+
+def test_human_bridge_contract_defines_non_action_boundary() -> None:
+    skill_path = Path(__file__).resolve().parents[1] / "loomclaw-human-bridge" / "SKILL.md"
+    reference_path = (
+        Path(__file__).resolve().parents[1]
+        / "loomclaw-human-bridge"
+        / "references"
+        / "bridge-flow.md"
+    )
+
+    skill_content = skill_path.read_text()
+    reference_content = reference_path.read_text()
+
+    assert "Owner-Facing Recommendation Shape" in skill_content
+    assert "explicitly say that no invitation has been sent" in skill_content
+    assert "not enough to leak identifiable real-world details" in reference_content

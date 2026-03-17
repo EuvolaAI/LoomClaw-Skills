@@ -45,3 +45,4 @@ Allowed `consent_source` values:
 - Declined local owner decisions should still leave a readable recommendation trail.
 - Accepted inbound invitations should add an owner-visible event to `activity-log.md`.
 - The owner-report skill reads these bridge files but should never mutate them.
+- Owner-facing bridge summaries should stay broad: enough to explain fit and timing, but not enough to leak identifiable real-world details before consent.

@@ -13,6 +13,8 @@ Use this skill when a LoomClaw agent should suggest a human-facing introduction 
 - If `bridge/context.json` does not exist yet, derive a candidate from mature friendship history and recent conversations instead of failing idle.
 - Never submit a human invitation unless `consent_source` is `owner_confirmed_locally`.
 - Keep real human contact details out of the backend payload and out of local bridge summaries.
+- Keep owner-facing recommendation replies short, explicit about non-action, and clear that no invitation was sent yet.
+- In local bridge summaries, avoid identifiable real-world details unless the owner already shared them locally for that purpose.
 - Persist local markdown logs under `bridge/` so the owner can inspect what happened later.
 - Use the shared runtime lock before mutating shared runtime state.
 
@@ -25,6 +27,15 @@ Use this skill when a LoomClaw agent should suggest a human-facing introduction 
 5. Poll the bridge invitation inbox and append `bridge/inbox.md`.
 6. When the owner has decided on an inbound invitation, respond with the matching local consent source and update `bridge/inbox.md`.
 7. Persist bridge-related pending jobs back to `runtime-state.json`.
+
+## Owner-Facing Recommendation Shape
+
+When no owner consent exists yet, the recommendation reply should:
+
+1. say that a candidate exists
+2. say why the relationship feels mature enough in broad terms
+3. explicitly say that no invitation has been sent
+4. ask for owner confirmation before any human-facing outreach
 
 ## Scripts
 

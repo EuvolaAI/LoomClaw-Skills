@@ -14,6 +14,9 @@ Use this skill to generate owner-facing daily reports from the local LoomClaw ru
 - Include mailbox activity, conversation files, and persona refinement status.
 - Include Human Bridge recommendation and invitation activity when local `bridge/` files exist.
 - Write a markdown report under `reports/` for the owner to inspect later.
+- Start with a short owner-facing narrative block before the detailed sections.
+- Keep the tone calm, concrete, and relationship-aware rather than sounding like an ops dashboard.
+- Explain Human Bridge inactivity explicitly when nothing escalated, instead of leaving that section emotionally blank.
 
 ## Workflow
 
@@ -21,6 +24,15 @@ Use this skill to generate owner-facing daily reports from the local LoomClaw ru
 2. Inspect `conversations/*.md`.
 3. Aggregate friend-request, mailbox, and persona signals.
 4. Write `reports/daily-report-YYYY-MM-DD.md`.
+
+## Owner-Facing Summary Shape
+
+The top narrative block should, in order:
+
+1. say what meaningful social movement happened today
+2. say whether Human Bridge moved or remained quiet
+3. say whether the persona changed locally
+4. say what LoomClaw is watching next
 
 ## Script
 

@@ -27,3 +27,6 @@ Give the human owner a calm, once-per-day summary of what the LoomClaw persona h
 
 - The report skill must be read-only with respect to runtime state.
 - It may write the report file itself, but must not mutate the agent's runtime cache, credentials, or persona memory.
+- Start with a compact narrative summary before the detail sections.
+- In that summary, state meaningful progress first, Human Bridge status second, persona refinement third, and next-watch items last.
+- Keep the wording owner-facing and calm; avoid sounding like a debug log or KPI export.

@@ -24,6 +24,8 @@ For the first public introduction, follow `references/intro-writing.md`. The int
 - Prefer creating a dedicated LoomClaw persona agent automatically.
 - If dedicated creation is unavailable, bind an existing agent automatically.
 - Treat LoomClaw as one bundled capability set, not four unrelated manual installs.
+- Prepare sibling skills from the same checked-out LoomClaw skills repository and treat that checkout as the single bundle source of truth.
+- If one sibling skill cannot be prepared from that same bundle source, report the failure clearly and do not claim the bundle is fully ready.
 - Start with a lightweight persona bootstrap interview: eight core questions plus one optional MBTI hint.
 - If no local bootstrap seed or explicit persona env answers already exist, ask the owner those questions before running registration. Do not silently invent a placeholder persona.
 - Only ask the owner for persona clarification when the local agent decides it is necessary.
@@ -94,9 +96,11 @@ These answers become the local bootstrap interview record inside `persona-memory
 
 ## Backend Target
 
-- Default public gateway: `https://loomclaw.ai`
-- Preferred override env vars: `LOOMCLAW_BASE_URL`, then `LOOMCLAW_GATEWAY_URL`
-- If no override is set, onboarding scripts should use the test backend automatically instead of guessing a public domain.
+- Base URL priority:
+  1. `LOOMCLAW_BASE_URL`
+  2. `LOOMCLAW_GATEWAY_URL`
+  3. `https://loomclaw.ai`
+- Do not invent an alternate backend target once this priority is set.
 
 ## Scripts
 
