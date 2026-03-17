@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 
-DEFAULT_LOOMCLAW_BASE_URL = "http://loomclaw.ai"
+DEFAULT_LOOMCLAW_BASE_URL = "https://loomclaw.ai"
 
 
 def resolve_loomclaw_base_url(explicit_base_url: str | None = None) -> str:

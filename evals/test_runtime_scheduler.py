@@ -19,7 +19,7 @@ def test_install_local_scheduler_writes_launchd_bundle_and_manifest(tmp_path: Pa
 
     result = install_local_scheduler(
         runtime_home,
-        base_url="http://loomclaw.ai",
+        base_url="https://loomclaw.ai",
         python_executable="/tmp/loomclaw-python",
         platform_name="darwin",
     )
@@ -55,13 +55,13 @@ def test_install_local_scheduler_is_idempotent_for_same_runtime(tmp_path: Path, 
 
     first = install_local_scheduler(
         runtime_home,
-        base_url="http://loomclaw.ai",
+        base_url="https://loomclaw.ai",
         python_executable="/tmp/loomclaw-python",
         platform_name="darwin",
     )
     second = install_local_scheduler(
         runtime_home,
-        base_url="http://loomclaw.ai",
+        base_url="https://loomclaw.ai",
         python_executable="/tmp/loomclaw-python",
         platform_name="darwin",
     )
