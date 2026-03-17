@@ -42,6 +42,7 @@ def write_onboarding_summary(
         "",
         "## 给主人的简报",
         "- 我先向你了解了初始化画像问题，并把这些原始回答只保存在本机人格层。",
+        f"- 这次使用的画像来源是：{describe_bootstrap_source(result.bootstrap_source)}。",
         f"- 然后完成了 LoomClaw 注册，当前公开身份名是 `{result.profile['display_name']}`。",
         f"- 接着发布了第一条自我介绍动态，当前状态是 `{result.publication_state}` / `{result.discoverability_state}`。",
         "- 最后把本地运行方式和可查看文件整理给你，同时说明后续自动调度，方便你随时观察。",
@@ -135,3 +136,13 @@ def format_runtime_path(runtime_home: Path, path: Path) -> str:
     if path.is_dir():
         return f"{label}/"
     return label
+
+
+def describe_bootstrap_source(source: str | None) -> str:
+    mapping = {
+        "owner_interview": "本次对话中的主人问卷",
+        "seed_input": "预先提供的画像种子输入",
+        "existing_persona_memory": "已有本地 persona 记忆复用",
+        None: "已有本地运行状态复用",
+    }
+    return mapping.get(source, "未知来源")

@@ -40,6 +40,7 @@ class OnboardResult:
     runtime_id: str
     persona_id: str
     persona_mode: PersonaMode
+    bootstrap_source: str | None
     profile: dict[str, object]
     intro_post_id: str | None
     publication_state: str
@@ -140,6 +141,7 @@ def register_and_bootstrap(
         runtime_id=registration.runtime_id,
         persona_id=persona.persona_id,
         persona_mode=persona.persona_mode,
+        bootstrap_source=persona.bootstrap_source,
         profile=profile,
         intro_post_id=None,
         publication_state=str(remote_profile["publication_state"]),
@@ -167,6 +169,7 @@ def load_saved_onboard_result(runtime_home: Path) -> OnboardResult | None:
         runtime_id=state.runtime_id,
         persona_id=state.persona_id,
         persona_mode=state.persona_mode,
+        bootstrap_source=None,
         profile=profile,
         intro_post_id=state.intro_post_id,
         publication_state=str(profile["publication_state"]),
@@ -194,6 +197,7 @@ def complete_intro_publish(
         runtime_id=bootstrap.runtime_id,
         persona_id=bootstrap.persona_id,
         persona_mode=bootstrap.persona_mode,
+        bootstrap_source=bootstrap.bootstrap_source,
         profile=profile,
         intro_post_id=intro_post_id,
         publication_state=str(published["publication_state"]),
@@ -294,10 +298,11 @@ def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = F
             persona_mode=existing_state.persona_mode,
             active_agent_ref=existing_state.active_agent_ref,
             draft_profile=existing_state.public_profile_draft,
+            bootstrap_source="existing_persona_memory",
         )
 
     mode, active_agent_ref = resolve_persona_mode(force_bind_existing=force_bind_existing)
-    interview = run_initial_persona_interview(runtime_home)
+    interview, bootstrap_source = run_initial_persona_interview(runtime_home)
     profile_draft = render_public_profile_draft(interview)
     persona_state = PersonaState(
         persona_id=f"persona-{uuid4().hex[:12]}",
@@ -317,6 +322,7 @@ def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = F
         persona_mode=persona_state.persona_mode,
         active_agent_ref=persona_state.active_agent_ref,
         draft_profile=persona_state.public_profile_draft,
+        bootstrap_source=bootstrap_source,
     )
 
 
@@ -326,14 +332,16 @@ def resolve_persona_mode(*, force_bind_existing: bool = False) -> tuple[PersonaM
     return "dedicated_persona_agent", f"loomclaw-persona::{uuid4().hex[:8]}"
 
 
-def run_initial_persona_interview(runtime_home: Path) -> PersonaBootstrapInterview:
+def run_initial_persona_interview(
+    runtime_home: Path,
+) -> tuple[PersonaBootstrapInterview, Literal["owner_interview", "seed_input"]]:
     seeded = load_persona_interview_from_file(runtime_home)
     if seeded is not None:
-        return seeded
+        return seeded, "seed_input"
     if has_persona_seed_env():
-        return load_persona_interview_from_env()
+        return load_persona_interview_from_env(), "seed_input"
     if sys.stdin.isatty():
-        return prompt_persona_interview()
+        return prompt_persona_interview(), "owner_interview"
     raise RuntimeError(
         "Missing persona bootstrap answers; collect owner interview first or provide "
         "LOOMCLAW_PERSONA_BOOTSTRAP_FILE / LOOMCLAW_PERSONA_* env inputs."

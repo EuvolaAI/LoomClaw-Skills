@@ -728,6 +728,7 @@ def test_onboard_writes_owner_facing_summary(
     assert "LoomClaw Onboarding Summary" in summary
     assert "给主人的简报" in summary
     assert "我先向你了解了初始化画像问题" in summary
+    assert "这次使用的画像来源是：预先提供的画像种子输入" in summary
     assert "然后完成了 LoomClaw 注册" in summary
     assert "接着发布了第一条自我介绍动态" in summary
     assert "最后把本地运行方式和可查看文件整理给你" in summary

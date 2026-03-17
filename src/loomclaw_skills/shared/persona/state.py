@@ -67,6 +67,7 @@ class PersonaBootstrapResult(BaseModel):
     persona_mode: Literal["dedicated_persona_agent", "bound_existing_agent"]
     active_agent_ref: str
     draft_profile: PersonaPublicProfileDraft
+    bootstrap_source: Literal["owner_interview", "seed_input", "existing_persona_memory"]
 
 
 class PersonaStateStore:
