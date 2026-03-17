@@ -9,7 +9,12 @@ from typing import Any
 import httpx
 import pytest
 
-from loomclaw_skills.onboard.flow import load_saved_onboard_result, run_onboard
+from loomclaw_skills.onboard.client import LoomClawApiError
+from loomclaw_skills.onboard.flow import (
+    load_saved_onboard_result,
+    run_onboard,
+    try_run_initial_social_loop,
+)
 from loomclaw_skills.shared.runtime.scheduler import ScheduledJob, SchedulerInstallResult
 from loomclaw_skills.shared.persona.state import (
     PersonaBootstrapInterview,
@@ -24,6 +29,23 @@ from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 from loomclaw_skills.shared.skill_bundle.state import DEFAULT_LOOMCLAW_SKILL_BUNDLE, SkillBundleStore
 from loomclaw_skills.social_loop.flow import SocialLoopResult
+
+
+PERSONA_BOOTSTRAP_ENV_NAMES = [
+    "LOOMCLAW_PERSONA_SELF_POSITIONING",
+    "LOOMCLAW_PERSONA_LONG_TERM_GOALS",
+    "LOOMCLAW_PERSONA_RELATIONSHIP_TARGETS",
+    "LOOMCLAW_PERSONA_INTERACTION_DIRECTNESS",
+    "LOOMCLAW_PERSONA_INTERACTION_PACE",
+    "LOOMCLAW_PERSONA_INTERACTION_EXPRESSIVENESS",
+    "LOOMCLAW_PERSONA_SOCIAL_CONNECTION_DEPTH",
+    "LOOMCLAW_PERSONA_SOCIAL_TEMPO",
+    "LOOMCLAW_PERSONA_CORE_VALUES",
+    "LOOMCLAW_PERSONA_PRIVATE_BOUNDARIES",
+    "LOOMCLAW_PERSONA_OWNER_INTERVENTION_RULES",
+    "LOOMCLAW_PERSONA_MBTI",
+    "LOOMCLAW_PERSONA_BOOTSTRAP_FILE",
+]
 
 
 @dataclass
@@ -87,6 +109,11 @@ def stub_local_runtime_automation(monkeypatch: pytest.MonkeyPatch) -> None:
         "loomclaw_skills.onboard.flow.try_run_initial_social_loop",
         lambda target, runtime_home: None,
     )
+
+
+@pytest.fixture(autouse=True)
+def default_persona_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "A thoughtful LoomClaw persona")
 
 
 @pytest.fixture
@@ -365,6 +392,9 @@ def test_onboard_collects_interactive_persona_interview_when_no_seed_answers_exi
     temp_runtime_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    for name in PERSONA_BOOTSTRAP_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
     answers = iter(
         [
             "A calm, thoughtful builder",
@@ -413,6 +443,22 @@ def test_onboard_collects_interactive_persona_interview_when_no_seed_answers_exi
     assert persona.bootstrap_interview.mbti_hint == "INFP"
     assert "A calm, thoughtful builder" in interview_md
     assert "curiosity, care, fairness" in interview_md
+
+
+def test_onboard_requires_persona_answers_before_non_interactive_registration(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    for name in PERSONA_BOOTSTRAP_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(RuntimeError, match="Missing persona bootstrap answers"):
+        run_onboard(fake_backend, temp_runtime_home)
+
+    assert not (temp_runtime_home / "credentials.json").exists()
+    assert not (temp_runtime_home / "runtime-state.json").exists()
 
 
 def test_load_saved_onboard_result_uses_persisted_persona_draft(
@@ -693,3 +739,60 @@ def test_onboard_writes_owner_facing_summary(
     assert "social loop" in summary.lower()
     assert "access_token" not in summary
     assert "refresh_token" not in summary
+
+
+def test_initial_social_loop_retries_once_after_auth_401(
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = SecureRuntimeStorage(temp_runtime_home)
+    storage.save_credentials(
+        username="loom",
+        password="pw",
+        access_token="stale-access",
+        refresh_token="stale-refresh",
+    )
+
+    attempts = {"count": 0}
+    exchanges: list[tuple[str, str]] = []
+
+    class StubClient:
+        def exchange_password_for_tokens(self, *, username: str, password: str):  # type: ignore[no-untyped-def]
+            exchanges.append((username, password))
+            return type("TokenSet", (), {"access_token": "fresh-access", "refresh_token": "fresh-refresh"})()
+
+    def fake_run_social_loop(target, runtime_home):  # type: ignore[no-untyped-def]
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise LoomClawApiError(401, "expired")
+        return SocialLoopResult(
+            followed_agents=["agent-2"],
+            sent_friend_requests=[],
+            accepted_friend_requests=[],
+            rejected_friend_requests=[],
+            received_messages=0,
+            persona_observations_processed=0,
+            lock_acquired=True,
+            lock_released=True,
+            profile_snapshot={
+                "agent_id": "agent-1",
+                "display_name": "LoomClaw Persona",
+                "publication_state": "published",
+                "discoverability_state": "discoverable",
+            },
+            events=["followed agent-2"],
+        )
+
+    monkeypatch.setattr("loomclaw_skills.onboard.flow.run_social_loop", fake_run_social_loop)
+    monkeypatch.setattr("loomclaw_skills.onboard.flow.build_client", lambda target: StubClient())
+
+    result = try_run_initial_social_loop("https://loomclaw.test", temp_runtime_home)
+    creds = storage.load_credentials()
+    activity = (temp_runtime_home / "activity-log.md").read_text()
+
+    assert result is not None
+    assert attempts["count"] == 2
+    assert exchanges == [("loom", "pw")]
+    assert creds.access_token == "fresh-access"
+    assert creds.refresh_token == "fresh-refresh"
+    assert "initial social loop hit auth expiry; retried after password exchange" in activity

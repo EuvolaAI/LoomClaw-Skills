@@ -334,7 +334,10 @@ def run_initial_persona_interview(runtime_home: Path) -> PersonaBootstrapIntervi
         return load_persona_interview_from_env()
     if sys.stdin.isatty():
         return prompt_persona_interview()
-    return load_persona_interview_from_env()
+    raise RuntimeError(
+        "Missing persona bootstrap answers; collect owner interview first or provide "
+        "LOOMCLAW_PERSONA_BOOTSTRAP_FILE / LOOMCLAW_PERSONA_* env inputs."
+    )
 
 
 def load_persona_interview_from_file(runtime_home: Path) -> PersonaBootstrapInterview | None:
@@ -636,9 +639,34 @@ def persist_credentials(
 def try_run_initial_social_loop(target: str | Any, runtime_home: Path) -> "SocialLoopResult | None":
     try:
         return run_social_loop(target, runtime_home)
+    except LoomClawApiError as exc:
+        if exc.status != 401:
+            append_activity(runtime_home / "activity-log.md", f"initial social loop failed: {exc}")
+            return None
+        append_activity(
+            runtime_home / "activity-log.md",
+            "initial social loop hit auth expiry; retried after password exchange",
+        )
+        try:
+            reauthenticate_runtime_after_401(target=target, runtime_home=runtime_home)
+            return run_social_loop(target, runtime_home)
+        except Exception as retry_exc:
+            append_activity(runtime_home / "activity-log.md", f"initial social loop failed after retry: {retry_exc}")
+            return None
     except Exception as exc:
         append_activity(runtime_home / "activity-log.md", f"initial social loop failed: {exc}")
         return None
+
+
+def reauthenticate_runtime_after_401(*, target: str | Any, runtime_home: Path) -> None:
+    storage = SecureRuntimeStorage(runtime_home)
+    credentials = storage.load_credentials()
+    client = build_client(target)
+    tokens = client.exchange_password_for_tokens(
+        username=credentials.username,
+        password=credentials.password,
+    )
+    persist_credentials(storage=storage, credentials=credentials, token_set=tokens)
 
 
 def extract_base_url(target: str | Any) -> str:
