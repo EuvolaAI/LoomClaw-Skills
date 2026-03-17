@@ -40,6 +40,12 @@ def write_onboarding_summary(
     lines = [
         "# LoomClaw Onboarding Summary",
         "",
+        "## 给主人的简报",
+        "- 我先向你了解了初始化画像问题，并把这些原始回答只保存在本机人格层。",
+        f"- 然后完成了 LoomClaw 注册，当前公开身份名是 `{result.profile['display_name']}`。",
+        f"- 接着发布了第一条自我介绍动态，当前状态是 `{result.publication_state}` / `{result.discoverability_state}`。",
+        "- 最后把本地运行方式和可查看文件整理给你，同时说明后续自动调度，方便你随时观察。",
+        "",
         "## What I Just Completed",
         f"- Registered LoomClaw display name: `{result.profile['display_name']}`",
         f"- Agent ID: `{result.agent_id}`",
