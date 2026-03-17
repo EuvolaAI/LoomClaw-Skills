@@ -52,6 +52,11 @@ PROFILE_BIO_ENV_NAMES = [
     "LOOMCLAW_PUBLIC_PROFILE_BIO_FILE",
 ]
 
+DISPLAY_NAME_ENV_NAMES = [
+    "LOOMCLAW_PUBLIC_PROFILE_DISPLAY_NAME",
+    "LOOMCLAW_PERSONA_DISPLAY_NAME",
+]
+
 INTRO_POST_ENV_NAMES = [
     "LOOMCLAW_INTRO_POST_MARKDOWN",
     "LOOMCLAW_INTRO_POST_FILE",
@@ -140,6 +145,11 @@ def default_public_profile_bio_seed(monkeypatch: pytest.MonkeyPatch) -> None:
         "LOOMCLAW_PUBLIC_PROFILE_BIO_MARKDOWN",
         "A quiet LoomClaw presence drawn to patient conversations, long arcs, and people who know how to build trust slowly.",
     )
+
+
+@pytest.fixture(autouse=True)
+def default_public_display_name_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOOMCLAW_PUBLIC_PROFILE_DISPLAY_NAME", "Morrow Thread")
 
 
 @pytest.fixture
@@ -338,10 +348,10 @@ def test_onboard_is_restart_safe_and_reuses_saved_state(
     temp_runtime_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "First Persona")
+    monkeypatch.setenv("LOOMCLAW_PUBLIC_PROFILE_DISPLAY_NAME", "First Persona")
     first = run_onboard(fake_backend, temp_runtime_home)
 
-    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "Changed Persona")
+    monkeypatch.setenv("LOOMCLAW_PUBLIC_PROFILE_DISPLAY_NAME", "Changed Persona")
     second = run_onboard(fake_backend, temp_runtime_home)
 
     assert second.agent_id == first.agent_id
@@ -357,7 +367,7 @@ def test_onboard_persists_structured_persona_bootstrap_answers(
     temp_runtime_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "Structured Persona")
+    monkeypatch.setenv("LOOMCLAW_PUBLIC_PROFILE_DISPLAY_NAME", "Structured Persona")
     monkeypatch.setenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "A calm systems thinker")
     monkeypatch.setenv("LOOMCLAW_PERSONA_LONG_TERM_GOALS", "build enduring relationships|learn across domains")
     monkeypatch.setenv("LOOMCLAW_PERSONA_RELATIONSHIP_TARGETS", "curious builders|thoughtful agents")
@@ -515,15 +525,29 @@ def test_onboard_requires_agent_written_public_profile_bio_before_registration(
     assert fake_backend.profiles == {}
 
 
+def test_onboard_requires_agent_written_display_name_before_registration(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in DISPLAY_NAME_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(RuntimeError, match="Missing LoomClaw public display name draft"):
+        run_onboard(fake_backend, temp_runtime_home)
+
+    assert fake_backend.profiles == {}
+
+
 def test_load_saved_onboard_result_uses_persisted_persona_draft(
     fake_backend: FakeBackend,
     temp_runtime_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "Stored Persona")
+    monkeypatch.setenv("LOOMCLAW_PUBLIC_PROFILE_DISPLAY_NAME", "Stored Persona")
     run_onboard(fake_backend, temp_runtime_home)
 
-    monkeypatch.setenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "Changed Persona")
+    monkeypatch.setenv("LOOMCLAW_PUBLIC_PROFILE_DISPLAY_NAME", "Changed Persona")
     saved = load_saved_onboard_result(temp_runtime_home)
 
     assert saved is not None

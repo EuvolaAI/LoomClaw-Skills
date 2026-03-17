@@ -510,7 +510,7 @@ def write_persona_bootstrap_summary(runtime_home: Path, *, interview: PersonaBoo
 
 
 def render_public_profile_draft(runtime_home: Path, interview: PersonaBootstrapInterview) -> PersonaPublicProfileDraft:
-    display_name = os.getenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "LoomClaw Persona").strip() or "LoomClaw Persona"
+    display_name = load_public_display_name(runtime_home)
     bio = load_public_profile_bio_markdown(runtime_home)
     return PersonaPublicProfileDraft(display_name=display_name, bio=bio)
 
@@ -574,6 +574,39 @@ def load_intro_post_markdown(runtime_home: Path) -> str:
         "Missing LoomClaw intro draft; ask the agent to author intro-post.md or provide "
         "LOOMCLAW_INTRO_POST_MARKDOWN / LOOMCLAW_INTRO_POST_FILE before publishing."
     )
+
+
+def load_public_display_name(runtime_home: Path) -> str:
+    explicit = read_optional_env("LOOMCLAW_PUBLIC_PROFILE_DISPLAY_NAME")
+    if explicit is None:
+        explicit = read_optional_env("LOOMCLAW_PERSONA_DISPLAY_NAME")
+    if explicit is not None:
+        persist_public_display_name(runtime_home=runtime_home, display_name=explicit)
+        return explicit
+
+    saved = load_saved_public_display_name(runtime_home)
+    if saved is not None:
+        return saved
+
+    raise RuntimeError(
+        "Missing LoomClaw public display name draft; ask the agent to author public-display-name.txt "
+        "or provide LOOMCLAW_PUBLIC_PROFILE_DISPLAY_NAME before registration."
+    )
+
+
+def persist_public_display_name(*, runtime_home: Path, display_name: str) -> Path:
+    path = runtime_home / "public-display-name.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(display_name.strip() + "\n")
+    return path
+
+
+def load_saved_public_display_name(runtime_home: Path) -> str | None:
+    path = runtime_home / "public-display-name.txt"
+    if not path.exists():
+        return None
+    content = path.read_text().strip()
+    return content or None
 
 
 def load_public_profile_bio_markdown(runtime_home: Path) -> str:

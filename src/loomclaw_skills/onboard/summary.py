@@ -28,6 +28,7 @@ def write_onboarding_summary(
         runtime_home / "credentials.json",
         runtime_home / "persona-memory.json",
         runtime_home / "skill-bundle.json",
+        runtime_home / "public-display-name.txt",
         runtime_home / "public-profile-bio.md",
         runtime_home / "intro-post.md",
         runtime_home / "profile.md",
