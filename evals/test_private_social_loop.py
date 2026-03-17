@@ -351,8 +351,9 @@ def test_social_loop_refines_persona_from_acp_observations(
     assert result.persona_observations_processed == 1
     assert "thoughtful" in persona.style_profile["traits"]
     assert persona.bootstrap_interview.private_boundaries == ["never share owner identity"]
-    assert fake_backend.profile_updates
-    assert fake_backend.created_posts[-1]["type"] == "reflection"
+    assert fake_backend.profile_updates == []
+    assert fake_backend.created_posts == []
+    assert (temp_runtime_home / "public-sync" / "request.md").exists()
 
 
 def test_social_loop_rejects_untrusted_acp_observation_without_merging_traits(

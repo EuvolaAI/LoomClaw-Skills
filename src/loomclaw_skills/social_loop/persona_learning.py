@@ -12,9 +12,6 @@ from loomclaw_skills.onboard.client import LoomClawClient
 from loomclaw_skills.shared.persona.state import PersonaObservationSummary, PersonaStateStore
 
 
-STYLE_MARKER = "\n\nCurrent LoomClaw social style:"
-
-
 @dataclass(frozen=True, slots=True)
 class ObservationEnvelope:
     observation: PersonaObservationSummary
@@ -34,6 +31,8 @@ class PersonaRefinementOutcome:
 class PublicPersonaSyncResult:
     synced: bool
     post_id: str | None = None
+    deferred: bool = False
+    guidance_path: Path | None = None
 
 
 def collect_local_acp_observations(runtime_home: Path) -> list[ObservationEnvelope]:
@@ -136,7 +135,6 @@ def refine_persona(runtime_home: Path, observations: list[ObservationEnvelope]) 
     if significant_change:
         persona.last_significant_change_at = refined_at
     persona.observation_summaries.extend([envelope.observation for envelope in observations])
-    persona.public_profile_draft.bio = render_public_bio(persona.public_profile_draft.bio, public_traits)
     store.save(persona)
     for envelope in observations:
         archive_observation(envelope.path, bucket="processed")
@@ -164,27 +162,90 @@ def sync_public_persona_after_refinement(
     if persona is None:
         return PublicPersonaSyncResult(synced=False)
 
+    drafts = load_public_sync_drafts(runtime_home)
+    if drafts is None:
+        guidance_path = write_public_sync_request(
+            runtime_home=runtime_home,
+            current_bio=persona.public_profile_draft.bio,
+            refinement=refinement,
+        )
+        return PublicPersonaSyncResult(synced=False, deferred=True, guidance_path=guidance_path)
+
     client.upsert_profile(
         display_name=persona.public_profile_draft.display_name,
-        bio=persona.public_profile_draft.bio,
+        bio=drafts.profile_bio,
     )
     reflection = client.create_post(
         post_type="reflection",
-        content_md=render_refinement_post(refinement.current_traits),
+        content_md=drafts.reflection_post,
     )
     synced_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    persona.public_profile_draft.bio = drafts.profile_bio
     persona.last_public_sync_at = synced_at
     persona.last_public_sync_reason = "acp_refinement_significant_change"
     persona.last_public_sync_post_id = str(reflection["post_id"])
     store.save(persona)
+    clear_public_sync_request(runtime_home)
     return PublicPersonaSyncResult(synced=True, post_id=str(reflection["post_id"]))
 
 
-def render_public_bio(current_bio: str, traits: list[str]) -> str:
-    base_bio = current_bio.split(STYLE_MARKER, 1)[0].rstrip()
-    if not traits:
-        return base_bio
-    return f"{base_bio}{STYLE_MARKER} {', '.join(traits)}."
+@dataclass(frozen=True, slots=True)
+class PublicSyncDrafts:
+    profile_bio: str
+    reflection_post: str
+
+
+def load_public_sync_drafts(runtime_home: Path) -> PublicSyncDrafts | None:
+    drafts_dir = runtime_home / "public-sync"
+    bio_path = drafts_dir / "profile-bio.md"
+    reflection_path = drafts_dir / "reflection-post.md"
+    if not bio_path.exists() or not reflection_path.exists():
+        return None
+
+    profile_bio = bio_path.read_text().strip()
+    reflection_post = reflection_path.read_text().strip()
+    if not profile_bio or not reflection_post:
+        return None
+    return PublicSyncDrafts(profile_bio=profile_bio, reflection_post=reflection_post)
+
+
+def write_public_sync_request(
+    *,
+    runtime_home: Path,
+    current_bio: str,
+    refinement: PersonaRefinementOutcome,
+) -> Path:
+    drafts_dir = runtime_home / "public-sync"
+    drafts_dir.mkdir(parents=True, exist_ok=True)
+    request_path = drafts_dir / "request.md"
+    traits = ", ".join(refinement.current_traits) if refinement.current_traits else "subtle but meaningful changes"
+    lines = [
+        "# LoomClaw Public Sync Request",
+        "",
+        "Author two public-safe drafts before the next public sync:",
+        "- `public-sync/profile-bio.md`",
+        "- `public-sync/reflection-post.md`",
+        "",
+        "Constraints:",
+        "- Write in the agent's own voice.",
+        "- Do not dump raw traits, interview answers, or slot labels.",
+        "- Use the local persona layer only as guidance.",
+        "",
+        "Current public bio:",
+        "```md",
+        current_bio.strip(),
+        "```",
+        "",
+        f"Recent public-safe signals: {traits}",
+    ]
+    request_path.write_text("\n".join(lines).strip() + "\n")
+    return request_path
+
+
+def clear_public_sync_request(runtime_home: Path) -> None:
+    request_path = runtime_home / "public-sync" / "request.md"
+    if request_path.exists():
+        request_path.unlink()
 
 
 def observation_is_public_safe(
@@ -215,12 +276,3 @@ def sanitize_agent_filename(agent_id: str) -> str:
     while "--" in sanitized:
         sanitized = sanitized.replace("--", "-")
     return sanitized.strip("-") or "agent"
-
-
-def render_refinement_post(traits: list[str]) -> str:
-    style = ", ".join(traits) if traits else "clear and steady"
-    return (
-        "I have been refining my public social style through ongoing local observation.\n\n"
-        f"Current signals point toward a style that feels more {style}.\n\n"
-        "I will keep adjusting slowly as higher-confidence relationship patterns emerge."
-    )

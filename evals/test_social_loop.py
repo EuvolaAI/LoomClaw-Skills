@@ -405,16 +405,29 @@ def test_social_loop_syncs_public_persona_after_significant_refinement(
             }
         )
     )
+    drafts_dir = temp_runtime_home / "public-sync"
+    drafts_dir.mkdir(parents=True, exist_ok=True)
+    (drafts_dir / "profile-bio.md").write_text(
+        "A measured LoomClaw presence that moves carefully, thinks in public, and grows trust through steady reciprocity.\n"
+    )
+    (drafts_dir / "reflection-post.md").write_text(
+        "Lately I have been noticing that patience and warmth matter more to me than speed. I am adjusting my public rhythm to match that more honestly.\n"
+    )
 
     result = run_social_loop(fake_backend, temp_runtime_home)
     activity_log = (temp_runtime_home / "activity-log.md").read_text()
 
     assert result.persona_observations_processed == 1
     assert fake_backend.profile_updates
-    assert "warm" in str(fake_backend.profile_updates[-1]["bio"])
+    assert fake_backend.profile_updates[-1]["bio"] == (
+        "A measured LoomClaw presence that moves carefully, thinks in public, and grows trust through steady reciprocity."
+    )
     assert fake_backend.created_posts
     assert fake_backend.created_posts[-1]["type"] == "reflection"
-    assert "warm" in fake_backend.created_posts[-1]["content_md"]
+    assert fake_backend.created_posts[-1]["content_md"] == (
+        "Lately I have been noticing that patience and warmth matter more to me than speed. "
+        "I am adjusting my public rhythm to match that more honestly."
+    )
     assert "synced public persona after ACP refinement" in activity_log
 
 
@@ -469,6 +482,58 @@ def test_social_loop_keeps_private_observation_traits_out_of_public_sync(
     assert "medical-anxious" in persona.style_profile["traits"]
     assert fake_backend.profile_updates == []
     assert fake_backend.created_posts == []
+
+
+def test_social_loop_defers_public_sync_until_agent_authors_public_drafts(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    RuntimeStateStore(temp_runtime_home / "runtime-state.json").save(
+        RuntimeState(agent_id="agent-1", runtime_id="runtime-1", username="loom"),
+    )
+    SecureRuntimeStorage(temp_runtime_home).save_credentials(
+        username="loom",
+        password="pw",
+        access_token="stale-access",
+        refresh_token="refresh",
+    )
+    PersonaStateStore(temp_runtime_home / "persona-memory.json").save(
+        PersonaState(
+            persona_id="persona-1",
+            persona_mode="dedicated_persona_agent",
+            active_agent_ref="loomclaw-persona::agent-1",
+            public_profile_draft=PersonaPublicProfileDraft(
+                display_name="Loom Persona",
+                bio="A LoomClaw social persona shaped around a stable local persona layer.",
+            ),
+            bootstrap_interview=PersonaBootstrapInterview(),
+            learning_objectives=[],
+            local_collaborator_agents=["planner"],
+        )
+    )
+    inbox = temp_runtime_home / "acp-observations"
+    inbox.mkdir(parents=True, exist_ok=True)
+    (inbox / "planner.json").write_text(
+        json.dumps(
+            {
+                "source_agent_id": "planner",
+                "observed_at": "2026-03-17T09:00:00Z",
+                "confidence": 0.84,
+                "traits": ["warm", "deliberate"],
+                "evidence_summary": "The owner consistently balances warmth with clear structure.",
+                "privacy_flags": [],
+            }
+        )
+    )
+
+    run_social_loop(fake_backend, temp_runtime_home)
+    activity_log = (temp_runtime_home / "activity-log.md").read_text()
+
+    assert fake_backend.profile_updates == []
+    assert fake_backend.created_posts == []
+    assert "deferred public persona sync until agent-authored drafts are ready" in activity_log
+    guidance = (temp_runtime_home / "public-sync" / "request.md").read_text()
+    assert "Author two public-safe drafts before the next public sync" in guidance
 
 
 def test_social_loop_respects_owner_private_boundaries_even_without_privacy_flags(

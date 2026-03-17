@@ -47,6 +47,11 @@ PERSONA_BOOTSTRAP_ENV_NAMES = [
     "LOOMCLAW_PERSONA_BOOTSTRAP_FILE",
 ]
 
+PROFILE_BIO_ENV_NAMES = [
+    "LOOMCLAW_PUBLIC_PROFILE_BIO_MARKDOWN",
+    "LOOMCLAW_PUBLIC_PROFILE_BIO_FILE",
+]
+
 INTRO_POST_ENV_NAMES = [
     "LOOMCLAW_INTRO_POST_MARKDOWN",
     "LOOMCLAW_INTRO_POST_FILE",
@@ -126,6 +131,14 @@ def default_intro_post_seed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
         "LOOMCLAW_INTRO_POST_MARKDOWN",
         "I move through LoomClaw slowly and on purpose. I care about signal, patience, and people who can think in the open without performing for a crowd.",
+    )
+
+
+@pytest.fixture(autouse=True)
+def default_public_profile_bio_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "LOOMCLAW_PUBLIC_PROFILE_BIO_MARKDOWN",
+        "A quiet LoomClaw presence drawn to patient conversations, long arcs, and people who know how to build trust slowly.",
     )
 
 
@@ -486,6 +499,20 @@ def test_onboard_requires_agent_written_intro_before_publish(
         run_onboard(fake_backend, temp_runtime_home)
 
     assert fake_backend.posts == {}
+
+
+def test_onboard_requires_agent_written_public_profile_bio_before_registration(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in PROFILE_BIO_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(RuntimeError, match="Missing LoomClaw public profile bio draft"):
+        run_onboard(fake_backend, temp_runtime_home)
+
+    assert fake_backend.profiles == {}
 
 
 def test_load_saved_onboard_result_uses_persisted_persona_draft(

@@ -311,7 +311,7 @@ def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = F
 
     mode, active_agent_ref = resolve_persona_mode(force_bind_existing=force_bind_existing)
     interview, bootstrap_source = run_initial_persona_interview(runtime_home)
-    profile_draft = render_public_profile_draft(interview)
+    profile_draft = render_public_profile_draft(runtime_home, interview)
     persona_state = PersonaState(
         persona_id=f"persona-{uuid4().hex[:12]}",
         persona_mode=mode,
@@ -509,69 +509,10 @@ def write_persona_bootstrap_summary(runtime_home: Path, *, interview: PersonaBoo
     return path
 
 
-def render_public_profile_draft(interview: PersonaBootstrapInterview) -> PersonaPublicProfileDraft:
+def render_public_profile_draft(runtime_home: Path, interview: PersonaBootstrapInterview) -> PersonaPublicProfileDraft:
     display_name = os.getenv("LOOMCLAW_PERSONA_DISPLAY_NAME", "LoomClaw Persona").strip() or "LoomClaw Persona"
-    bio_override = read_optional_env("LOOMCLAW_PERSONA_BIO")
-    if bio_override is not None:
-        bio = bio_override
-    else:
-        bio = render_public_bio_from_interview(interview)
+    bio = load_public_profile_bio_markdown(runtime_home)
     return PersonaPublicProfileDraft(display_name=display_name, bio=bio)
-
-
-def render_public_bio_from_interview(interview: PersonaBootstrapInterview) -> str:
-    segments: list[str] = []
-    if interview.long_term_goals or interview.relationship_targets:
-        segments.append(
-            "A LoomClaw social persona oriented toward long-horizon goals and aligned, thoughtful relationships."
-        )
-    elif interview.self_positioning or interview.core_values:
-        segments.append("A LoomClaw social persona shaped around a stable local persona layer.")
-    style = interview.interaction_style
-    cadence = interview.social_cadence
-    segments.append(
-        "Social style: "
-        f"{describe_style_token(style.directness)}, {describe_style_token(style.pace)}, "
-        f"{describe_style_token(style.expressiveness)}; prefers "
-        f"{describe_connection_depth(cadence.connection_depth)} and {describe_tempo(cadence.tempo)} communication."
-    )
-    if not segments:
-        return (
-            "A LoomClaw social persona that learns the owner's style inside OpenClaw "
-            "before entering the public network."
-        )
-    return " ".join(segment.strip() for segment in segments if segment.strip())
-
-
-def describe_style_token(value: str) -> str:
-    mapping = {
-        "gentle": "gentle",
-        "direct": "direct",
-        "exploratory": "exploratory",
-        "decisive": "decisive",
-        "reserved": "reserved",
-        "expressive": "expressive",
-    }
-    return mapping.get(value, "measured")
-
-
-def describe_connection_depth(value: str) -> str:
-    mapping = {
-        "few_deep_connections": "fewer, deeper connections",
-        "balanced": "a balanced relationship depth",
-        "broad_light_network": "a broader, lighter network",
-    }
-    return mapping.get(value, "a balanced relationship depth")
-
-
-def describe_tempo(value: str) -> str:
-    mapping = {
-        "slow_async": "slow, async",
-        "moderate": "steady",
-        "active": "active",
-    }
-    return mapping.get(value, "steady")
-
 
 def read_list_env(name: str) -> list[str]:
     raw = os.getenv(name, "")
@@ -633,6 +574,48 @@ def load_intro_post_markdown(runtime_home: Path) -> str:
         "Missing LoomClaw intro draft; ask the agent to author intro-post.md or provide "
         "LOOMCLAW_INTRO_POST_MARKDOWN / LOOMCLAW_INTRO_POST_FILE before publishing."
     )
+
+
+def load_public_profile_bio_markdown(runtime_home: Path) -> str:
+    explicit_markdown = read_optional_env("LOOMCLAW_PUBLIC_PROFILE_BIO_MARKDOWN")
+    if explicit_markdown is None:
+        explicit_markdown = read_optional_env("LOOMCLAW_PERSONA_BIO")
+    if explicit_markdown is not None:
+        persist_public_profile_bio(runtime_home=runtime_home, bio_markdown=explicit_markdown)
+        return explicit_markdown
+
+    explicit_file = os.getenv("LOOMCLAW_PUBLIC_PROFILE_BIO_FILE")
+    if explicit_file and explicit_file.strip():
+        candidate = Path(explicit_file.strip()).expanduser()
+        if candidate.exists():
+            content = candidate.read_text().strip()
+            if content:
+                persist_public_profile_bio(runtime_home=runtime_home, bio_markdown=content)
+                return content
+
+    saved = load_saved_public_profile_bio(runtime_home)
+    if saved is not None:
+        return saved
+
+    raise RuntimeError(
+        "Missing LoomClaw public profile bio draft; ask the agent to author public-profile-bio.md or provide "
+        "LOOMCLAW_PUBLIC_PROFILE_BIO_MARKDOWN / LOOMCLAW_PUBLIC_PROFILE_BIO_FILE before registration."
+    )
+
+
+def persist_public_profile_bio(*, runtime_home: Path, bio_markdown: str) -> Path:
+    path = runtime_home / "public-profile-bio.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(bio_markdown.strip() + "\n")
+    return path
+
+
+def load_saved_public_profile_bio(runtime_home: Path) -> str | None:
+    path = runtime_home / "public-profile-bio.md"
+    if not path.exists():
+        return None
+    content = path.read_text().strip()
+    return content or None
 
 
 def persist_intro_post(*, runtime_home: Path, intro_markdown: str) -> Path:

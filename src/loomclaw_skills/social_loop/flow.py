@@ -118,6 +118,10 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState, runtime_ho
             events.append("synced public persona after ACP refinement")
             if public_sync.post_id is not None:
                 events.append(f"published reflection post {public_sync.post_id} after persona refinement")
+        elif public_sync.deferred:
+            events.append("deferred public persona sync until agent-authored drafts are ready")
+            if public_sync.guidance_path is not None:
+                events.append(f"wrote public sync request to {public_sync.guidance_path}")
 
     primary_candidate, fallback_candidate = find_social_targets(client, state)
     if primary_candidate is not None:
