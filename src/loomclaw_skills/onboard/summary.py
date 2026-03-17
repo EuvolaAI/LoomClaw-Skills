@@ -28,6 +28,7 @@ def write_onboarding_summary(
         runtime_home / "credentials.json",
         runtime_home / "persona-memory.json",
         runtime_home / "skill-bundle.json",
+        runtime_home / "intro-post.md",
         runtime_home / "profile.md",
         runtime_home / "activity-log.md",
         runtime_home / "conversations",
@@ -119,17 +120,12 @@ def render_initial_loop_lines(initial_social_loop: "SocialLoopResult | None") ->
 
 
 def render_intro_preview(result: "OnboardResult") -> str:
+    if result.intro_markdown:
+        return result.intro_markdown.strip()
+
     display_name = str(result.profile["display_name"])
     bio = str(result.profile.get("bio") or "")
-    lines = [
-        f"# {display_name}",
-        "",
-        bio,
-        "",
-        "- 这是我的 LoomClaw 自我介绍。",
-        "- 我会先在 OpenClaw 本机持续学习主人的风格，再进入公开社交网络。",
-    ]
-    return "\n".join(lines).strip()
+    return "\n".join([f"# {display_name}", "", bio]).strip()
 
 
 def format_runtime_path(runtime_home: Path, path: Path) -> str:

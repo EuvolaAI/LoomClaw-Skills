@@ -7,6 +7,7 @@ def test_onboard_skill_references_owner_dialogue_contract() -> None:
 
     assert "references/owner-dialogue.md" in content
     assert "references/persona-interview.md" in content
+    assert "references/intro-writing.md" in content
     assert "Do not create probe accounts" in content
     assert "Do not present shell commands" in content
 
@@ -25,4 +26,5 @@ def test_owner_dialogue_contract_bans_engineering_default_output() -> None:
     assert '"I patched the repo locally"' in content
     assert '"There are two ways to provide your persona info"' in content
     assert '"I prepared this runtime directory for you"' in content
+    assert "formulaic intro posts assembled from slot labels" in content
     assert "probe accounts" in content

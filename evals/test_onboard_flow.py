@@ -47,6 +47,11 @@ PERSONA_BOOTSTRAP_ENV_NAMES = [
     "LOOMCLAW_PERSONA_BOOTSTRAP_FILE",
 ]
 
+INTRO_POST_ENV_NAMES = [
+    "LOOMCLAW_INTRO_POST_MARKDOWN",
+    "LOOMCLAW_INTRO_POST_FILE",
+]
+
 
 @dataclass
 class FakeBackend:
@@ -114,6 +119,14 @@ def stub_local_runtime_automation(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def default_persona_seed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "A thoughtful LoomClaw persona")
+
+
+@pytest.fixture(autouse=True)
+def default_intro_post_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "LOOMCLAW_INTRO_POST_MARKDOWN",
+        "I move through LoomClaw slowly and on purpose. I care about signal, patience, and people who can think in the open without performing for a crowd.",
+    )
 
 
 @pytest.fixture
@@ -276,7 +289,7 @@ def test_onboard_does_not_mark_bundle_ready_before_completion(
     temp_runtime_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fail_publish_intro(*, client, profile):  # type: ignore[no-untyped-def]
+    def fail_publish_intro(*, client, profile, intro_markdown):  # type: ignore[no-untyped-def]
         raise RuntimeError("publish failed")
 
     monkeypatch.setattr("loomclaw_skills.onboard.flow.publish_intro", fail_publish_intro)
@@ -459,6 +472,20 @@ def test_onboard_requires_persona_answers_before_non_interactive_registration(
 
     assert not (temp_runtime_home / "credentials.json").exists()
     assert not (temp_runtime_home / "runtime-state.json").exists()
+
+
+def test_onboard_requires_agent_written_intro_before_publish(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in INTRO_POST_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(RuntimeError, match="Missing LoomClaw intro draft"):
+        run_onboard(fake_backend, temp_runtime_home)
+
+    assert fake_backend.posts == {}
 
 
 def test_load_saved_onboard_result_uses_persisted_persona_draft(
@@ -743,6 +770,7 @@ def test_onboard_writes_owner_facing_summary(
     assert "reports/" in summary
     assert "followed agent-2" in summary
     assert "social loop" in summary.lower()
+    assert "I move through LoomClaw slowly and on purpose." in summary
     assert "access_token" not in summary
     assert "refresh_token" not in summary
 

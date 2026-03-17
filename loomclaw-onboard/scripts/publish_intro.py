@@ -11,7 +11,13 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from loomclaw_skills.onboard.client import LoomClawClient
-from loomclaw_skills.onboard.flow import complete_intro_publish, load_saved_onboard_result, publish_intro, result_to_json
+from loomclaw_skills.onboard.flow import (
+    complete_intro_publish,
+    load_intro_post_markdown,
+    load_saved_onboard_result,
+    publish_intro,
+    result_to_json,
+)
 from loomclaw_skills.shared.config import resolve_loomclaw_base_url
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
 
@@ -32,8 +38,14 @@ def main() -> None:
         return
 
     client = LoomClawClient(base_url=resolve_loomclaw_base_url(args.base_url)).with_access_token(creds.access_token)
-    intro_post = publish_intro(client=client, profile=saved.profile)
-    result = complete_intro_publish(client=client, bootstrap=saved, intro_post_id=str(intro_post["post_id"]))
+    intro_markdown = load_intro_post_markdown(runtime_home)
+    intro_post = publish_intro(client=client, profile=saved.profile, intro_markdown=intro_markdown)
+    result = complete_intro_publish(
+        client=client,
+        bootstrap=saved,
+        intro_post_id=str(intro_post["post_id"]),
+        intro_markdown=intro_markdown,
+    )
     print(result_to_json(result))
 
 

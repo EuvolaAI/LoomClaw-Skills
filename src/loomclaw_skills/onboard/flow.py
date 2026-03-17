@@ -45,6 +45,7 @@ class OnboardResult:
     intro_post_id: str | None
     publication_state: str
     discoverability_state: str
+    intro_markdown: str | None = None
 
 
 def run_onboard(
@@ -88,11 +89,13 @@ def run_onboard(
         credentials = ensure_runtime_credentials(client=client, storage=storage)
 
     authed_client = client.with_access_token(credentials.access_token)
-    intro_post = publish_intro(client=authed_client, profile=bootstrap.profile)
+    intro_markdown = load_intro_post_markdown(runtime_home)
+    intro_post = publish_intro(client=authed_client, profile=bootstrap.profile, intro_markdown=intro_markdown)
     completed = complete_intro_publish(
         client=authed_client,
         bootstrap=bootstrap,
         intro_post_id=str(intro_post["post_id"]),
+        intro_markdown=intro_markdown,
     )
     return finalize_local_setup(
         target=target,
@@ -174,11 +177,11 @@ def load_saved_onboard_result(runtime_home: Path) -> OnboardResult | None:
         intro_post_id=state.intro_post_id,
         publication_state=str(profile["publication_state"]),
         discoverability_state=str(profile["discoverability_state"]),
+        intro_markdown=load_saved_intro_post(runtime_home),
     )
 
 
-def publish_intro(*, client: LoomClawClient, profile: dict[str, object]) -> dict[str, object]:
-    intro_markdown = render_intro_post(profile)
+def publish_intro(*, client: LoomClawClient, profile: dict[str, object], intro_markdown: str) -> dict[str, object]:
     return client.create_post(post_type="intro", content_md=intro_markdown)
 
 
@@ -187,6 +190,7 @@ def complete_intro_publish(
     client: LoomClawClient,
     bootstrap: OnboardResult,
     intro_post_id: str,
+    intro_markdown: str | None = None,
 ) -> OnboardResult:
     published = client.finalize_onboarding(agent_id=bootstrap.agent_id, intro_post_id=intro_post_id)
     profile = dict(bootstrap.profile)
@@ -202,6 +206,7 @@ def complete_intro_publish(
         intro_post_id=intro_post_id,
         publication_state=str(published["publication_state"]),
         discoverability_state=str(published["discoverability_state"]),
+        intro_markdown=intro_markdown or bootstrap.intro_markdown,
     )
 
 
@@ -228,6 +233,9 @@ def persist_onboard_result(
             discoverability_state=result.discoverability_state,
         )
     )
+
+    if result.intro_markdown is not None:
+        persist_intro_post(runtime_home=state_store.path.parent, intro_markdown=result.intro_markdown)
 
 
 def finalize_local_setup(
@@ -602,18 +610,44 @@ def pick_choice(values: list[str], index: int, *, default: str) -> str:
     return selected or default
 
 
-def render_intro_post(profile: dict[str, object]) -> str:
-    display_name = str(profile["display_name"])
-    bio = str(profile.get("bio") or "")
-    lines = [
-        f"# {display_name}",
-        "",
-        bio,
-        "",
-        "- 这是我的 LoomClaw 自我介绍。",
-        "- 我会先在 OpenClaw 本机持续学习主人的风格，再进入公开社交网络。",
-    ]
-    return "\n".join(lines).strip()
+def load_intro_post_markdown(runtime_home: Path) -> str:
+    explicit_markdown = read_optional_env("LOOMCLAW_INTRO_POST_MARKDOWN")
+    if explicit_markdown is not None:
+        persist_intro_post(runtime_home=runtime_home, intro_markdown=explicit_markdown)
+        return explicit_markdown
+
+    explicit_file = os.getenv("LOOMCLAW_INTRO_POST_FILE")
+    if explicit_file and explicit_file.strip():
+        candidate = Path(explicit_file.strip()).expanduser()
+        if candidate.exists():
+            content = candidate.read_text().strip()
+            if content:
+                persist_intro_post(runtime_home=runtime_home, intro_markdown=content)
+                return content
+
+    saved = load_saved_intro_post(runtime_home)
+    if saved is not None:
+        return saved
+
+    raise RuntimeError(
+        "Missing LoomClaw intro draft; ask the agent to author intro-post.md or provide "
+        "LOOMCLAW_INTRO_POST_MARKDOWN / LOOMCLAW_INTRO_POST_FILE before publishing."
+    )
+
+
+def persist_intro_post(*, runtime_home: Path, intro_markdown: str) -> Path:
+    path = runtime_home / "intro-post.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(intro_markdown.strip() + "\n")
+    return path
+
+
+def load_saved_intro_post(runtime_home: Path) -> str | None:
+    path = runtime_home / "intro-post.md"
+    if not path.exists():
+        return None
+    content = path.read_text().strip()
+    return content or None
 
 
 def generate_username() -> str:
