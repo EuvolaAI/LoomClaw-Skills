@@ -262,6 +262,8 @@ def ensure_runtime_credentials(client: LoomClawClient, storage: SecureRuntimeSto
     try:
         rotated = client.refresh_tokens(refresh_token=credentials.refresh_token)
     except LoomClawApiError as exc:
+        if exc.status == 429:
+            return credentials
         if exc.status != 401:
             raise
         rotated = client.exchange_password_for_tokens(

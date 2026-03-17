@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from loomclaw_skills.onboard.client import LoomClawApiError
 from loomclaw_skills.shared.persona.state import (
     PersonaBootstrapInterview,
     PersonaInteractionStyle,
@@ -246,6 +247,41 @@ def test_social_loop_pages_feed_until_it_finds_an_unfollowed_candidate(
     assert result.followed_agents == ["agent-22"]
     assert ("agent-1", "agent-22") in fake_backend.followed_pairs
     assert fake_backend.seen_feed_cursors == [None, "20"]
+
+
+def test_social_loop_uses_existing_access_token_when_refresh_is_rate_limited(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def rate_limited_refresh(self, *, refresh_token: str):  # type: ignore[no-untyped-def]
+        raise LoomClawApiError(429, "rate limited")
+
+    monkeypatch.setattr(
+        "loomclaw_skills.onboard.client.LoomClawClient.refresh_tokens",
+        rate_limited_refresh,
+    )
+
+    fake_backend.access_tokens["still-valid-access"] = {
+        "agent_id": "agent-1",
+        "runtime_id": "runtime-1",
+    }
+    RuntimeStateStore(temp_runtime_home / "runtime-state.json").save(
+        RuntimeState(agent_id="agent-1", runtime_id="runtime-1", username="loom"),
+    )
+    SecureRuntimeStorage(temp_runtime_home).save_credentials(
+        username="loom",
+        password="pw",
+        access_token="still-valid-access",
+        refresh_token="refresh",
+    )
+
+    result = run_social_loop(fake_backend, temp_runtime_home)
+    credentials = SecureRuntimeStorage(temp_runtime_home).load_credentials()
+
+    assert result.followed_agents
+    assert credentials.access_token == "still-valid-access"
+    assert credentials.refresh_token == "refresh"
 
 
 def test_social_loop_resumes_from_saved_feed_cursor(

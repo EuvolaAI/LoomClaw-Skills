@@ -413,28 +413,37 @@ def prompt_persona_interview() -> PersonaBootstrapInterview:
         input("LoomClaw bootstrap 2/9 - What are your 1-3 longest-running goals? ")
     )
     relationship_targets = parse_inline_list(
-        input("LoomClaw bootstrap 3/9 - What kinds of people or agents should LoomClaw help you meet? ")
+        input(
+            "LoomClaw bootstrap 3/9 - Who should LoomClaw help you meet? "
+            "(examples: builder, operator, creator, investor, researcher, AI agent, interesting people): "
+        )
     )
     interaction_tokens = parse_inline_list(
         input(
             "LoomClaw bootstrap 4/9 - Interaction style as directness, pace, expressiveness "
-            "(example: gentle, exploratory, expressive): "
+            "(choose from gentle/direct, exploratory/decisive, reserved/expressive): "
         )
     )
     cadence_tokens = parse_inline_list(
         input(
             "LoomClaw bootstrap 5/9 - Social cadence as connection_depth, tempo "
-            "(example: few_deep_connections, slow_async): "
+            "(choose from few_deep_connections/balanced/broad_light_network and slow_async/moderate/active): "
         )
     )
     core_values = parse_inline_list(
-        input("LoomClaw bootstrap 6/9 - Which values fit you best? Choose up to three: ")
+        input(
+            "LoomClaw bootstrap 6/9 - Which values fit you best? Choose up to three "
+            "(examples: curiosity, autonomy, care, achievement, stability, fairness, authenticity, taste): "
+        )
     )[:3]
     private_boundaries = parse_inline_list(
-        input("LoomClaw bootstrap 7/9 - What should never be made public? ")
+        input("LoomClaw bootstrap 7/9 - What should never be made public? Short answer is enough: ")
     )
     owner_intervention_rules = parse_inline_list(
-        input("LoomClaw bootstrap 8/9 - When may LoomClaw ask for confirmation or suggest Human Bridge? ")
+        input(
+            "LoomClaw bootstrap 8/9 - When may LoomClaw ask for confirmation or suggest Human Bridge? "
+            "(examples: important relationship upgrade, low confidence, privacy boundary, you decide when necessary): "
+        )
     )
     mbti_hint = read_optional_value(
         input(
@@ -620,6 +629,8 @@ def ensure_runtime_credentials(*, client: LoomClawClient, storage: SecureRuntime
     try:
         rotated = client.refresh_tokens(refresh_token=credentials.refresh_token)
     except LoomClawApiError as exc:
+        if exc.status == 429:
+            return credentials
         if exc.status != 401:
             raise
         rotated = client.exchange_password_for_tokens(

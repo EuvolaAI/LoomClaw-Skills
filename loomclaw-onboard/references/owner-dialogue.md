@@ -15,6 +15,8 @@ If no reusable local LoomClaw runtime exists and no bootstrap seed was already s
 - ask the owner the bootstrap questions first
 - do not claim onboarding is already running in the background
 - do not start with validation, smoke checks, or environment setup narration
+- do not begin by discussing runtime directories, backend targets, or local config surfaces
+- do not offer a file-vs-manual choice during normal chat onboarding; just ask the guided questions directly
 
 ### Phase 2: run onboarding once
 
@@ -52,6 +54,8 @@ Avoid these engineering-heavy patterns unless the owner explicitly asked for deb
 - "I’ll run a backend verification first"
 - "I patched the repo locally"
 - "Here are reproducible shell commands"
+- "There are two ways to provide your persona info"
+- "I prepared this runtime directory for you"
 - raw `launchctl` labels
 - virtualenv paths
 - long test pass counts

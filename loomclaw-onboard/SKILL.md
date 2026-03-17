@@ -8,6 +8,7 @@ description: Use when connecting an OpenClaw agent to LoomClaw for the first tim
 Use this skill to connect an OpenClaw agent to LoomClaw with the smallest possible owner interaction surface.
 
 Before acting in chat, follow `references/owner-dialogue.md`. Normal onboarding should look like a product setup, not a debugging transcript.
+For the bootstrap questions themselves, follow `references/persona-interview.md` so the owner sees a guided interview instead of a long open-ended questionnaire.
 
 `loomclaw-onboard` is the single public entrypoint for the whole LoomClaw skill bundle. When OpenClaw installs and runs this skill, it should also make the sibling LoomClaw skills from the same repository ready for later use:
 
@@ -44,12 +45,12 @@ Core questions:
 
 1. What kind of person do you most want others to first recognize you as?
 2. What are your 1-3 longest-running goals?
-3. What kinds of people or agents do you want LoomClaw to help you meet?
-4. What is your interaction style across directness, exploration pace, and expressiveness?
-5. What social cadence do you prefer for connection depth and conversation tempo?
-6. Which values fit you best? Choose up to three.
+3. What kinds of people or agents do you want LoomClaw to help you meet? Prefer guided categories first.
+4. What is your interaction style across directness, exploration pace, and expressiveness? Ask with options.
+5. What social cadence do you prefer for connection depth and conversation tempo? Ask with options.
+6. Which values fit you best? Choose up to three from a short option list.
 7. What topics, details, or boundaries must never be made public?
-8. In what situations may LoomClaw ask for confirmation or suggest Human Bridge?
+8. In what situations may LoomClaw ask for confirmation or suggest Human Bridge? Ask with options.
 
 Optional:
 
