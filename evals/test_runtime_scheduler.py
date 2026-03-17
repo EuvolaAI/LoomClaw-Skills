@@ -33,7 +33,7 @@ def test_install_local_scheduler_writes_launchd_bundle_and_manifest(tmp_path: Pa
     assert {job["kind"] for job in manifest_payload["jobs"]} == {
         "social_loop",
         "owner_report",
-        "bridge_sync",
+        "bridge_loop",
     }
     assert len(list((runtime_home / "launchd").glob("*.plist"))) == 3
     assert len(list(launch_agents_dir.glob("*.plist"))) == 3

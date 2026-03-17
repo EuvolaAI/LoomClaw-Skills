@@ -119,9 +119,9 @@ def build_jobs(
             "start_calendar_interval": {"Hour": 20, "Minute": 0},
         },
         {
-            "kind": "bridge_sync",
-            "suffix": "bridge-sync",
-            "script_path": skills_root / "loomclaw-human-bridge" / "scripts" / "invitations.py",
+            "kind": "bridge_loop",
+            "suffix": "bridge-loop",
+            "script_path": skills_root / "loomclaw-human-bridge" / "scripts" / "run_bridge.py",
             "schedule_description": "every 15 minutes (run at load)",
             "run_at_load": True,
             "start_interval": 900,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -62,10 +63,23 @@ class InvitationResponseResult:
 
 
 def run_human_bridge(target: str | object, runtime_home: Path) -> BridgeResult:
-    context = load_bridge_context(runtime_home)
     client = _build_authed_client(target, runtime_home)
 
     with locked_runtime_state(runtime_home) as state:
+        context = load_or_derive_bridge_context(runtime_home, state=state)
+        recommendation_id: str | None = None
+        invitation_id: str | None = None
+        if context is None:
+            reconcile_outgoing_bridge_invitations(client, runtime_home, state)
+            incoming_invitation_ids = poll_bridge_invitation_inbox(client, runtime_home, state)
+            return BridgeResult(
+                recommendation_id=None,
+                invitation_id=None,
+                incoming_invitation_ids=incoming_invitation_ids,
+                lock_acquired=True,
+                lock_released=True,
+            )
+
         recommendation_id = context.recommendation_id
         if recommendation_id is None:
             recommendation = create_bridge_recommendation(
@@ -118,10 +132,18 @@ def run_human_bridge(target: str | object, runtime_home: Path) -> BridgeResult:
 
 
 def run_bridge_recommendation(target: str | object, runtime_home: Path) -> BridgeResult:
-    context = load_bridge_context(runtime_home)
     client = _build_authed_client(target, runtime_home)
 
     with locked_runtime_state(runtime_home) as state:
+        context = load_or_derive_bridge_context(runtime_home, state=state)
+        if context is None:
+            return BridgeResult(
+                recommendation_id=None,
+                invitation_id=None,
+                incoming_invitation_ids=[],
+                lock_acquired=True,
+                lock_released=True,
+            )
         recommendation = create_bridge_recommendation(
             client,
             runtime_home,
@@ -314,10 +336,72 @@ def load_bridge_context(runtime_home: Path) -> BridgeContext:
     return BridgeContext.model_validate_json(path.read_text())
 
 
+def load_or_derive_bridge_context(runtime_home: Path, *, state: RuntimeState) -> BridgeContext | None:
+    path = runtime_home / "bridge" / "context.json"
+    if path.exists():
+        return BridgeContext.model_validate_json(path.read_text())
+
+    derived = derive_bridge_context(runtime_home, state=state)
+    if derived is None:
+        return None
+    save_bridge_context(runtime_home, derived)
+    return derived
+
+
+def derive_bridge_context(runtime_home: Path, *, state: RuntimeState) -> BridgeContext | None:
+    candidates = sorted(
+        agent_id
+        for agent_id, relationship_state in state.relationship_cache.items()
+        if relationship_state == "friend"
+    )
+    for peer_agent_id in candidates:
+        conversation_path = runtime_home / "conversations" / f"{peer_agent_id}.md"
+        if not conversation_path.exists():
+            continue
+        conversation = conversation_path.read_text()
+        if conversation.count("## ") < 4:
+            continue
+        if not conversation_is_recent(conversation):
+            continue
+        return BridgeContext(
+            peer_agent_id=peer_agent_id,
+            summary_markdown=render_derived_bridge_summary(peer_agent_id, conversation),
+        )
+    return None
+
+
 def save_bridge_context(runtime_home: Path, context: BridgeContext) -> None:
     path = runtime_home / "bridge" / "context.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(context.model_dump_json(indent=2))
+
+
+def render_derived_bridge_summary(peer_agent_id: str, conversation_markdown: str) -> str:
+    message_count = conversation_markdown.count("## ")
+    return (
+        f"Local relationship history suggests `{peer_agent_id}` may merit owner review as a Human Bridge candidate. "
+        "The agents have an established friendship and multiple logged conversation turns, but the final decision should still remain local-first.\n\n"
+        f"Evidence summary: {message_count} logged conversation turns across an existing friendship."
+    )
+
+
+def conversation_is_recent(conversation_markdown: str) -> bool:
+    timestamps: list[datetime] = []
+    for line in conversation_markdown.splitlines():
+        if not line.startswith("## "):
+            continue
+        timestamp_token = line.removeprefix("## ").split(" ", 1)[0]
+        try:
+            parsed = datetime.fromisoformat(timestamp_token.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        timestamps.append(parsed.astimezone(timezone.utc))
+    if not timestamps:
+        return False
+    freshest = max(timestamps)
+    return freshest >= datetime.now(timezone.utc) - timedelta(days=30)
 
 
 def _build_authed_client(target: str | object, runtime_home: Path) -> LoomClawClient:

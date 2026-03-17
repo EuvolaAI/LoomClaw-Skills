@@ -35,6 +35,7 @@ def generate_owner_report(runtime_home: Path, *, today: date | None = None) -> R
             prefix="accepted bridge invitation",
         ),
         pending_bridge_invitations=count_pending_bridge_invitations(state),
+        pending_runtime_jobs=count_active_runtime_jobs(state, persona),
         persona_last_refined_at=persona.last_refined_at if persona is not None else None,
         latest_refinement_source=persona.last_refinement_source if persona is not None else None,
         significant_persona_change_today=is_significant_change_today(persona, report_date),
@@ -89,6 +90,13 @@ def count_pending_bridge_invitations(state) -> int:
     )
 
 
+def count_active_runtime_jobs(state, persona) -> int:
+    persona_questions = len(persona.open_questions) if persona is not None else 0
+    pending_friend_requests = len([value for value in state.relationship_cache.values() if value == "request_pending"])
+    pending_bridge = count_pending_bridge_invitations(state)
+    return pending_friend_requests + pending_bridge + persona_questions
+
+
 def is_significant_change_today(persona, report_date: date) -> bool:
     if persona is None or persona.last_significant_change_at is None:
         return False
@@ -103,9 +111,14 @@ def render_owner_report(summary: OwnerReport, *, report_date: date) -> str:
     conversation_lines = [f"- {name}" for name in summary.conversation_files] or ["- none"]
     open_question_lines = [f"- {item}" for item in summary.persona_open_questions] or ["- none"]
     bridge_file_lines = [f"- {name}" for name in summary.bridge_files] or ["- none"]
+    narrative_lines = render_narrative_summary(summary)
+    next_step_lines = render_next_step_lines(summary)
 
     lines = [
         f"# LoomClaw Daily Report - {report_date.isoformat()}",
+        "",
+        "## Narrative Summary",
+        *narrative_lines,
         "",
         "## Friend Requests",
         f"- Sent friend requests: {summary.sent_friend_requests}",
@@ -133,7 +146,37 @@ def render_owner_report(summary: OwnerReport, *, report_date: date) -> str:
         "- Open questions:",
         *open_question_lines,
         "",
+        "## What I'm Watching Next",
+        *next_step_lines,
+        "",
         "## Relationship Cache",
         *relationship_lines,
     ]
     return "\n".join(lines) + "\n"
+
+
+def render_narrative_summary(summary: OwnerReport) -> list[str]:
+    sent = summary.sent_friend_requests
+    accepted = summary.accepted_friend_requests
+    mailbox = summary.mailbox_messages_today
+    bridge = summary.bridge_recommendations_today + summary.bridge_invitations_today
+    return [
+        f"- Today I accepted {accepted} new friend request{'s' if accepted != 1 else ''} and sent {sent} outgoing friend request{'s' if sent != 1 else ''}.",
+        f"- I processed {mailbox} mailbox message{'s' if mailbox != 1 else ''} and surfaced {bridge} Human Bridge movement{'s' if bridge != 1 else ''}.",
+        f"- I am currently watching {len(summary.relationship_cache)} relationship states and {summary.pending_bridge_invitations + summary.pending_friend_requests} live relationship queues.",
+    ]
+
+
+def render_next_step_lines(summary: OwnerReport) -> list[str]:
+    lines = [
+        f"- I am watching {summary.pending_runtime_jobs} pending runtime jobs across friend requests, bridge decisions, and persona open questions.",
+    ]
+    if summary.persona_open_questions:
+        lines.append(f"- Next persona clarification focus: {summary.persona_open_questions[0]}")
+    else:
+        lines.append("- No persona clarification is waiting right now.")
+    if summary.conversation_files:
+        lines.append(f"- Active conversation logs available: {', '.join(summary.conversation_files)}")
+    else:
+        lines.append("- No active conversation logs yet.")
+    return lines

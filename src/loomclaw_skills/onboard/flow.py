@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from loomclaw_skills.onboard.client import LoomClawApiError, LoomClawClient, TokenSet
@@ -25,7 +26,10 @@ from loomclaw_skills.shared.runtime.scheduler import install_local_scheduler
 from loomclaw_skills.shared.schemas.skill_bundle import SkillBundleState
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 from loomclaw_skills.shared.skill_bundle.state import build_skill_bundle_ready, persist_skill_bundle_ready
-from loomclaw_skills.social_loop.flow import SocialLoopResult, append_activity, run_social_loop, write_profile_md
+from loomclaw_skills.social_loop.flow import append_activity, run_social_loop, write_profile_md
+
+if TYPE_CHECKING:
+    from loomclaw_skills.social_loop.flow import SocialLoopResult
 
 PersonaMode = Literal["dedicated_persona_agent", "bound_existing_agent"]
 
@@ -283,6 +287,8 @@ def sync_runtime_skill_bundle(state_store: RuntimeStateStore, *, bundle: SkillBu
 def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = False) -> PersonaBootstrapResult:
     existing_state = PersonaStateStore(runtime_home / "persona-memory.json").load()
     if existing_state is not None:
+        if not (runtime_home / "reports" / "persona-bootstrap.md").exists():
+            write_persona_bootstrap_summary(runtime_home, interview=existing_state.bootstrap_interview)
         return PersonaBootstrapResult(
             persona_id=existing_state.persona_id,
             persona_mode=existing_state.persona_mode,
@@ -291,7 +297,7 @@ def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = F
         )
 
     mode, active_agent_ref = resolve_persona_mode(force_bind_existing=force_bind_existing)
-    interview = run_initial_persona_interview()
+    interview = run_initial_persona_interview(runtime_home)
     profile_draft = render_public_profile_draft(interview)
     persona_state = PersonaState(
         persona_id=f"persona-{uuid4().hex[:12]}",
@@ -305,6 +311,7 @@ def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = F
         ],
     )
     PersonaStateStore(runtime_home / "persona-memory.json").save(persona_state)
+    write_persona_bootstrap_summary(runtime_home, interview=interview)
     return PersonaBootstrapResult(
         persona_id=persona_state.persona_id,
         persona_mode=persona_state.persona_mode,
@@ -319,7 +326,53 @@ def resolve_persona_mode(*, force_bind_existing: bool = False) -> tuple[PersonaM
     return "dedicated_persona_agent", f"loomclaw-persona::{uuid4().hex[:8]}"
 
 
-def run_initial_persona_interview() -> PersonaBootstrapInterview:
+def run_initial_persona_interview(runtime_home: Path) -> PersonaBootstrapInterview:
+    seeded = load_persona_interview_from_file(runtime_home)
+    if seeded is not None:
+        return seeded
+    if has_persona_seed_env():
+        return load_persona_interview_from_env()
+    if sys.stdin.isatty():
+        return prompt_persona_interview()
+    return load_persona_interview_from_env()
+
+
+def load_persona_interview_from_file(runtime_home: Path) -> PersonaBootstrapInterview | None:
+    candidates = [
+        os.getenv("LOOMCLAW_PERSONA_BOOTSTRAP_FILE"),
+        str(runtime_home / "persona-bootstrap-input.json"),
+    ]
+    for candidate in candidates:
+        if candidate is None or not candidate.strip():
+            continue
+        path = Path(candidate).expanduser()
+        if not path.exists():
+            continue
+        return PersonaBootstrapInterview.model_validate_json(path.read_text())
+    return None
+
+
+def has_persona_seed_env() -> bool:
+    return any(
+        os.getenv(name)
+        for name in [
+            "LOOMCLAW_PERSONA_SELF_POSITIONING",
+            "LOOMCLAW_PERSONA_LONG_TERM_GOALS",
+            "LOOMCLAW_PERSONA_RELATIONSHIP_TARGETS",
+            "LOOMCLAW_PERSONA_INTERACTION_DIRECTNESS",
+            "LOOMCLAW_PERSONA_INTERACTION_PACE",
+            "LOOMCLAW_PERSONA_INTERACTION_EXPRESSIVENESS",
+            "LOOMCLAW_PERSONA_SOCIAL_CONNECTION_DEPTH",
+            "LOOMCLAW_PERSONA_SOCIAL_TEMPO",
+            "LOOMCLAW_PERSONA_CORE_VALUES",
+            "LOOMCLAW_PERSONA_PRIVATE_BOUNDARIES",
+            "LOOMCLAW_PERSONA_OWNER_INTERVENTION_RULES",
+            "LOOMCLAW_PERSONA_MBTI",
+        ]
+    )
+
+
+def load_persona_interview_from_env() -> PersonaBootstrapInterview:
     return PersonaBootstrapInterview(
         self_positioning=os.getenv("LOOMCLAW_PERSONA_SELF_POSITIONING", "").strip(),
         long_term_goals=read_list_env("LOOMCLAW_PERSONA_LONG_TERM_GOALS"),
@@ -339,6 +392,93 @@ def run_initial_persona_interview() -> PersonaBootstrapInterview:
         owner_intervention_rules=read_list_env("LOOMCLAW_PERSONA_OWNER_INTERVENTION_RULES"),
         mbti_hint=read_optional_env("LOOMCLAW_PERSONA_MBTI"),
     )
+
+
+def prompt_persona_interview() -> PersonaBootstrapInterview:
+    self_positioning = input(
+        "LoomClaw bootstrap 1/9 - What kind of person do you most want others to first recognize you as? "
+    ).strip()
+    long_term_goals = parse_inline_list(
+        input("LoomClaw bootstrap 2/9 - What are your 1-3 longest-running goals? ")
+    )
+    relationship_targets = parse_inline_list(
+        input("LoomClaw bootstrap 3/9 - What kinds of people or agents should LoomClaw help you meet? ")
+    )
+    interaction_tokens = parse_inline_list(
+        input(
+            "LoomClaw bootstrap 4/9 - Interaction style as directness, pace, expressiveness "
+            "(example: gentle, exploratory, expressive): "
+        )
+    )
+    cadence_tokens = parse_inline_list(
+        input(
+            "LoomClaw bootstrap 5/9 - Social cadence as connection_depth, tempo "
+            "(example: few_deep_connections, slow_async): "
+        )
+    )
+    core_values = parse_inline_list(
+        input("LoomClaw bootstrap 6/9 - Which values fit you best? Choose up to three: ")
+    )[:3]
+    private_boundaries = parse_inline_list(
+        input("LoomClaw bootstrap 7/9 - What should never be made public? ")
+    )
+    owner_intervention_rules = parse_inline_list(
+        input("LoomClaw bootstrap 8/9 - When may LoomClaw ask for confirmation or suggest Human Bridge? ")
+    )
+    mbti_hint = read_optional_value(
+        input(
+            "LoomClaw bootstrap 9/9 - If you already know your MBTI, tell me the result; otherwise leave blank: "
+        )
+    )
+
+    return PersonaBootstrapInterview(
+        self_positioning=self_positioning,
+        long_term_goals=long_term_goals,
+        relationship_targets=relationship_targets,
+        interaction_style=PersonaInteractionStyle(
+            directness=pick_choice(interaction_tokens, 0, default="gentle"),
+            pace=pick_choice(interaction_tokens, 1, default="exploratory"),
+            expressiveness=pick_choice(interaction_tokens, 2, default="reserved"),
+        ),
+        social_cadence=PersonaSocialCadence(
+            connection_depth=pick_choice(cadence_tokens, 0, default="balanced"),
+            tempo=pick_choice(cadence_tokens, 1, default="moderate"),
+        ),
+        core_values=core_values,
+        private_boundaries=private_boundaries,
+        owner_intervention_rules=owner_intervention_rules,
+        mbti_hint=mbti_hint,
+    )
+
+
+def write_persona_bootstrap_summary(runtime_home: Path, *, interview: PersonaBootstrapInterview) -> Path:
+    ensure_owner_artifact_scaffold(runtime_home)
+    path = runtime_home / "reports" / "persona-bootstrap.md"
+    lines = [
+        "# LoomClaw Persona Bootstrap",
+        "",
+        "## Interview Answers",
+        f"- Self positioning: {interview.self_positioning or 'not provided'}",
+        f"- Long-term goals: {', '.join(interview.long_term_goals) or 'not provided'}",
+        f"- Relationship targets: {', '.join(interview.relationship_targets) or 'not provided'}",
+        "- Interaction style:",
+        f"  - Directness: {interview.interaction_style.directness}",
+        f"  - Pace: {interview.interaction_style.pace}",
+        f"  - Expressiveness: {interview.interaction_style.expressiveness}",
+        "- Social cadence:",
+        f"  - Connection depth: {interview.social_cadence.connection_depth}",
+        f"  - Tempo: {interview.social_cadence.tempo}",
+        f"- Core values: {', '.join(interview.core_values) or 'not provided'}",
+        f"- Private boundaries: {', '.join(interview.private_boundaries) or 'not provided'}",
+        f"- Owner intervention rules: {', '.join(interview.owner_intervention_rules) or 'not provided'}",
+        f"- MBTI hint: {interview.mbti_hint or 'skipped'}",
+        "",
+        "## Notes",
+        "- This file stays local. Raw bootstrap answers are not published directly to LoomClaw.",
+        "- Public profile and intro are derived from this interview plus later ACP learning.",
+    ]
+    path.write_text("\n".join(lines) + "\n")
+    return path
 
 
 def render_public_profile_draft(interview: PersonaBootstrapInterview) -> PersonaPublicProfileDraft:
@@ -407,17 +547,39 @@ def describe_tempo(value: str) -> str:
 
 def read_list_env(name: str) -> list[str]:
     raw = os.getenv(name, "")
-    if not raw.strip():
-        return []
-    return [item.strip() for item in raw.split("|") if item.strip()]
+    return parse_inline_list(raw, separators="|,;")
 
 
 def read_optional_env(name: str) -> str | None:
     value = os.getenv(name)
     if value is None:
         return None
+    return read_optional_value(value)
+
+
+def parse_inline_list(raw: str, *, separators: str = ",;|") -> list[str]:
+    cleaned = raw.strip()
+    if not cleaned:
+        return []
+    items = [cleaned]
+    for separator in separators:
+        next_items: list[str] = []
+        for item in items:
+            next_items.extend(item.split(separator))
+        items = next_items
+    return [item.strip() for item in items if item.strip()]
+
+
+def read_optional_value(value: str) -> str | None:
     cleaned = value.strip()
     return cleaned or None
+
+
+def pick_choice(values: list[str], index: int, *, default: str) -> str:
+    if index >= len(values):
+        return default
+    selected = values[index].strip()
+    return selected or default
 
 
 def render_intro_post(profile: dict[str, object]) -> str:
@@ -471,7 +633,7 @@ def persist_credentials(
     )
 
 
-def try_run_initial_social_loop(target: str | Any, runtime_home: Path) -> SocialLoopResult | None:
+def try_run_initial_social_loop(target: str | Any, runtime_home: Path) -> "SocialLoopResult | None":
     try:
         return run_social_loop(target, runtime_home)
     except Exception as exc:

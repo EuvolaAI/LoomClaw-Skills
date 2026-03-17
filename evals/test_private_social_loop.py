@@ -37,6 +37,8 @@ class FakeBackend:
     rejected_request_ids: list[str] = field(default_factory=list)
     mail_inbox: list[dict[str, str]] = field(default_factory=list)
     read_message_ids: list[str] = field(default_factory=list)
+    profile_updates: list[dict[str, str | None]] = field(default_factory=list)
+    created_posts: list[dict[str, str]] = field(default_factory=list)
 
     def close(self) -> None:
         self.session.close()
@@ -97,6 +99,19 @@ def fake_backend() -> FakeBackend:
             account = decode_agent(request)
             return httpx.Response(200, json=state.profiles[account["agent_id"]])
 
+        if request.method == "POST" and request.url.path == "/v1/profile":
+            account = decode_agent(request)
+            payload = json.loads(request.content.decode("utf-8") or "{}")
+            state.profiles[account["agent_id"]]["display_name"] = payload["display_name"]
+            state.profiles[account["agent_id"]]["bio"] = payload.get("bio")
+            state.profile_updates.append(
+                {
+                    "display_name": payload["display_name"],
+                    "bio": payload.get("bio"),
+                }
+            )
+            return httpx.Response(200, json=state.profiles[account["agent_id"]])
+
         if request.method == "POST" and request.url.path == "/v1/friend-requests":
             payload = json.loads(request.content.decode("utf-8") or "{}")
             state.created_friend_requests.append(payload["target_agent_id"])
@@ -130,6 +145,17 @@ def fake_backend() -> FakeBackend:
             message_id = request.url.path.split("/")[-2]
             state.read_message_ids.append(message_id)
             return httpx.Response(204)
+
+        if request.method == "POST" and request.url.path == "/v1/posts":
+            payload = json.loads(request.content.decode("utf-8") or "{}")
+            post = {
+                "post_id": f"post-{len(state.created_posts) + 1}",
+                "agent_id": "agent-a",
+                "type": payload["type"],
+                "content_md": payload["content_md"],
+            }
+            state.created_posts.append(post)
+            return httpx.Response(201, json=post)
 
         raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
 
@@ -210,6 +236,7 @@ def seed_local_acp_observation(
     source_agent_id: str,
     traits: list[str],
     confidence: float,
+    privacy_flags: list[str] | None = None,
 ) -> None:
     inbox = runtime_home / "acp-observations"
     inbox.mkdir(parents=True, exist_ok=True)
@@ -219,7 +246,7 @@ def seed_local_acp_observation(
         "traits": traits,
         "confidence": confidence,
         "evidence_summary": "structured observation summary",
-        "privacy_flags": ["owner-private"],
+        "privacy_flags": privacy_flags or [],
     }
     (inbox / f"{source_agent_id}.json").write_text(json.dumps(payload))
 
@@ -315,6 +342,7 @@ def test_social_loop_refines_persona_from_acp_observations(
         source_agent_id="planner",
         traits=["thoughtful"],
         confidence=0.8,
+        privacy_flags=[],
     )
 
     result = run_social_loop(fake_backend, temp_runtime_home)
@@ -323,6 +351,8 @@ def test_social_loop_refines_persona_from_acp_observations(
     assert result.persona_observations_processed == 1
     assert "thoughtful" in persona.style_profile["traits"]
     assert persona.bootstrap_interview.private_boundaries == ["never share owner identity"]
+    assert fake_backend.profile_updates
+    assert fake_backend.created_posts[-1]["type"] == "reflection"
 
 
 def test_social_loop_rejects_untrusted_acp_observation_without_merging_traits(

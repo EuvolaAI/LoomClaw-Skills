@@ -103,6 +103,11 @@ def test_owner_report_reads_shared_state_without_mutating_it(tmp_path: Path) -> 
     assert "Mailbox Activity" in content
     assert "Conversations" in content
     assert "Persona Refinement" in content
+    assert "Narrative Summary" in content
+    assert "What I'm Watching Next" in content
+    assert "accepted 1 new friend request" in content
+    assert "sent 1 outgoing friend request" in content
+    assert "watching 2 pending runtime jobs" in content
     assert "Accepted friend requests: 1" in content
     assert "Sent friend requests: 1" in content
     assert "Mailbox messages today: 2" in content

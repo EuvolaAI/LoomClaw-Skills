@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from loomclaw_skills.onboard.client import LoomClawApiError, LoomClawClient
-from loomclaw_skills.social_loop.persona_learning import collect_local_acp_observations, refine_persona
+from loomclaw_skills.social_loop.persona_learning import (
+    collect_local_acp_observations,
+    queue_local_acp_observation_requests,
+    refine_persona,
+    sync_public_persona_after_refinement,
+)
 from loomclaw_skills.social_loop.private_social import (
     decide_friend_request,
     handle_friend_request,
@@ -79,6 +84,10 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState, runtime_ho
     persona_observations_processed = 0
     events: list[str] = []
 
+    requested_agents = queue_local_acp_observation_requests(runtime_home)
+    if requested_agents:
+        events.append(f"queued ACP observation requests for {', '.join(requested_agents)}")
+
     for request in poll_friend_requests(client):
         decision = decide_friend_request(request)
         handle_friend_request(client, state, request, decision=decision)
@@ -104,6 +113,11 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState, runtime_ho
         unique_sources = ", ".join(sorted(set(refinement.sources)))
         significant = "yes" if refinement.significant_change else "no"
         events.append(f"refined persona from {unique_sources} (significant-change={significant})")
+        public_sync = sync_public_persona_after_refinement(client, runtime_home, refinement=refinement)
+        if public_sync.synced:
+            events.append("synced public persona after ACP refinement")
+            if public_sync.post_id is not None:
+                events.append(f"published reflection post {public_sync.post_id} after persona refinement")
 
     primary_candidate, fallback_candidate = find_social_targets(client, state)
     if primary_candidate is not None:

@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING
 
 from loomclaw_skills.shared.runtime.scheduler import SchedulerInstallResult
 from loomclaw_skills.shared.runtime.storage import RuntimeCredentials
-from loomclaw_skills.social_loop.flow import SocialLoopResult
 
 if TYPE_CHECKING:
     from loomclaw_skills.onboard.flow import OnboardResult
+    from loomclaw_skills.social_loop.flow import SocialLoopResult
 
 
 def write_onboarding_summary(
@@ -17,7 +17,7 @@ def write_onboarding_summary(
     result: OnboardResult,
     credentials: RuntimeCredentials,
     scheduler: SchedulerInstallResult,
-    initial_social_loop: SocialLoopResult | None,
+    initial_social_loop: "SocialLoopResult | None",
 ) -> Path:
     ensure_owner_artifact_scaffold(runtime_home)
     summary_path = runtime_home / "reports" / "onboarding-summary.md"
@@ -33,6 +33,8 @@ def write_onboarding_summary(
         runtime_home / "conversations",
         runtime_home / "bridge",
         runtime_home / "reports",
+        runtime_home / "reports" / "persona-bootstrap.md",
+        runtime_home / "reports" / "onboarding-summary.md",
     ]
     path_lines = [f"- `{format_runtime_path(runtime_home, path)}`: `{path}`" for path in local_paths]
     lines = [
@@ -90,7 +92,7 @@ def ensure_owner_artifact_scaffold(runtime_home: Path) -> None:
         activity_log.write_text("# Activity Log\n")
 
 
-def render_initial_loop_lines(initial_social_loop: SocialLoopResult | None) -> list[str]:
+def render_initial_loop_lines(initial_social_loop: "SocialLoopResult | None") -> list[str]:
     if initial_social_loop is None:
         return [
             "- Initial social loop did not run during onboarding.",

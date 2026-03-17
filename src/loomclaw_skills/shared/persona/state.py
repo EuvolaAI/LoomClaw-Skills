@@ -57,6 +57,9 @@ class PersonaState(BaseModel):
     open_questions: list[str] = Field(default_factory=list)
     local_collaborator_agents: list[str] = Field(default_factory=list)
     observation_summaries: list[PersonaObservationSummary] = Field(default_factory=list)
+    last_public_sync_at: str | None = None
+    last_public_sync_reason: str | None = None
+    last_public_sync_post_id: str | None = None
 
 
 class PersonaBootstrapResult(BaseModel):

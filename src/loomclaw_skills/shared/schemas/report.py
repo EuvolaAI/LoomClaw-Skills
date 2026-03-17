@@ -14,6 +14,7 @@ class OwnerReport(BaseModel):
     bridge_invitations_today: int = 0
     accepted_bridge_invitations_today: int = 0
     pending_bridge_invitations: int = 0
+    pending_runtime_jobs: int = 0
     persona_last_refined_at: str | None = None
     latest_refinement_source: str | None = None
     significant_persona_change_today: bool = False

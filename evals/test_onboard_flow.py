@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import builtins
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -359,6 +360,61 @@ def test_onboard_skips_mbti_when_not_provided(
     assert persona.bootstrap_interview.mbti_hint is None
 
 
+def test_onboard_collects_interactive_persona_interview_when_no_seed_answers_exist(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    answers = iter(
+        [
+            "A calm, thoughtful builder",
+            "build enduring tools, learn across domains",
+            "curious builders, thoughtful agents",
+            "gentle, exploratory, expressive",
+            "few_deep_connections, slow_async",
+            "curiosity, care, fairness",
+            "never reveal owner identity; never publish private contact details",
+            "ask before Human Bridge; ask when confidence is low",
+            "INFP",
+        ]
+    )
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(builtins, "input", lambda _: next(answers))
+
+    run_onboard(fake_backend, temp_runtime_home)
+    persona = PersonaStateStore(temp_runtime_home / "persona-memory.json").load()
+    interview_md = (temp_runtime_home / "reports" / "persona-bootstrap.md").read_text()
+
+    assert persona is not None
+    assert persona.bootstrap_interview.self_positioning == "A calm, thoughtful builder"
+    assert persona.bootstrap_interview.long_term_goals == [
+        "build enduring tools",
+        "learn across domains",
+    ]
+    assert persona.bootstrap_interview.relationship_targets == [
+        "curious builders",
+        "thoughtful agents",
+    ]
+    assert persona.bootstrap_interview.interaction_style.directness == "gentle"
+    assert persona.bootstrap_interview.interaction_style.pace == "exploratory"
+    assert persona.bootstrap_interview.interaction_style.expressiveness == "expressive"
+    assert persona.bootstrap_interview.social_cadence.connection_depth == "few_deep_connections"
+    assert persona.bootstrap_interview.social_cadence.tempo == "slow_async"
+    assert persona.bootstrap_interview.core_values == ["curiosity", "care", "fairness"]
+    assert persona.bootstrap_interview.private_boundaries == [
+        "never reveal owner identity",
+        "never publish private contact details",
+    ]
+    assert persona.bootstrap_interview.owner_intervention_rules == [
+        "ask before Human Bridge",
+        "ask when confidence is low",
+    ]
+    assert persona.bootstrap_interview.mbti_hint == "INFP"
+    assert "A calm, thoughtful builder" in interview_md
+    assert "curiosity, care, fairness" in interview_md
+
+
 def test_load_saved_onboard_result_uses_persisted_persona_draft(
     fake_backend: FakeBackend,
     temp_runtime_home: Path,
@@ -494,6 +550,34 @@ def test_onboard_resume_refreshes_saved_tokens_before_finishing_partial_state(
     assert result.intro_post_id is not None
     assert credentials.access_token == "refreshed-access-runtime-1"
     assert credentials.refresh_token == "refreshed-refresh-runtime-1"
+
+
+def test_onboard_uses_explicit_interaction_env_answers_without_prompting(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOOMCLAW_PERSONA_INTERACTION_DIRECTNESS", "direct")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_INTERACTION_PACE", "decisive")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_INTERACTION_EXPRESSIVENESS", "expressive")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SOCIAL_CONNECTION_DEPTH", "few_deep_connections")
+    monkeypatch.setenv("LOOMCLAW_PERSONA_SOCIAL_TEMPO", "slow_async")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(
+        builtins,
+        "input",
+        lambda _: (_ for _ in ()).throw(AssertionError("interactive prompt should not run")),
+    )
+
+    run_onboard(fake_backend, temp_runtime_home)
+    persona = PersonaStateStore(temp_runtime_home / "persona-memory.json").load()
+
+    assert persona is not None
+    assert persona.bootstrap_interview.interaction_style.directness == "direct"
+    assert persona.bootstrap_interview.interaction_style.pace == "decisive"
+    assert persona.bootstrap_interview.interaction_style.expressiveness == "expressive"
+    assert persona.bootstrap_interview.social_cadence.connection_depth == "few_deep_connections"
+    assert persona.bootstrap_interview.social_cadence.tempo == "slow_async"
 
 
 def test_onboard_forwards_invite_code_when_provided(fake_backend: FakeBackend, temp_runtime_home: Path) -> None:
