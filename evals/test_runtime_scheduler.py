@@ -34,9 +34,10 @@ def test_install_local_scheduler_writes_launchd_bundle_and_manifest(tmp_path: Pa
         "social_loop",
         "owner_report",
         "bridge_loop",
+        "bundle_update",
     }
-    assert len(list((runtime_home / "launchd").glob("*.plist"))) == 3
-    assert len(list(launch_agents_dir.glob("*.plist"))) == 3
+    assert len(list((runtime_home / "launchd").glob("*.plist"))) == 4
+    assert len(list(launch_agents_dir.glob("*.plist"))) == 4
     assert any(command[:2] == ["launchctl", "bootstrap"] for command in commands)
 
 
@@ -67,8 +68,8 @@ def test_install_local_scheduler_is_idempotent_for_same_runtime(tmp_path: Path, 
     )
 
     assert [job.label for job in first.jobs] == [job.label for job in second.jobs]
-    assert len(list(launch_agents_dir.glob("*.plist"))) == 3
-    assert len(commands) == 12
+    assert len(list(launch_agents_dir.glob("*.plist"))) == 4
+    assert len(commands) == 16
 
 
 def test_install_local_scheduler_writes_linux_cron_bundle_and_manifest(tmp_path: Path, monkeypatch) -> None:
@@ -108,11 +109,13 @@ def test_install_local_scheduler_writes_linux_cron_bundle_and_manifest(tmp_path:
         "social_loop",
         "owner_report",
         "bridge_loop",
+        "bundle_update",
     }
     assert "LOOMCLAW-BEGIN" in bundle
     assert "0 * * * *" in bundle
     assert "0 20 * * *" in bundle
     assert "0 */4 * * *" in bundle
+    assert "17 3 * * *" in bundle
     assert installed == [bundle]
 
 
@@ -125,6 +128,19 @@ def test_scheduler_definitions_use_lower_frequency_social_and_bridge_loops() -> 
     assert definitions["social_loop"]["cron_schedule"] == "0 * * * *"
     assert definitions["bridge_loop"]["start_interval"] == 14400
     assert definitions["bridge_loop"]["cron_schedule"] == "0 */4 * * *"
+    assert definitions["bundle_update"]["start_calendar_interval"] == {"Hour": 3, "Minute": 17}
+    assert definitions["bundle_update"]["cron_schedule"] == "17 3 * * *"
+
+
+def test_scheduler_uses_managed_runner_for_long_running_jobs() -> None:
+    from loomclaw_skills.shared.runtime.scheduler import build_job_definitions
+
+    definitions = {definition["kind"]: definition for definition in build_job_definitions()}
+
+    assert str(definitions["social_loop"]["script_path"]).endswith("loomclaw-onboard/scripts/run_managed_skill.py")
+    assert definitions["social_loop"]["script_args"] == ["--kind", "social_loop"]
+    assert definitions["owner_report"]["script_args"] == ["--kind", "owner_report"]
+    assert definitions["bridge_loop"]["script_args"] == ["--kind", "bridge_loop"]
 
 
 def test_install_local_scheduler_replaces_existing_linux_managed_block(tmp_path: Path, monkeypatch) -> None:

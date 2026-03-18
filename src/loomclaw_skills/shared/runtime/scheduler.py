@@ -115,11 +115,13 @@ def install_local_scheduler(
 
 def build_job_definitions() -> list[dict[str, object]]:
     skills_root = Path(__file__).resolve().parents[4]
+    managed_runner = skills_root / "loomclaw-onboard" / "scripts" / "run_managed_skill.py"
     return [
         {
             "kind": "social_loop",
             "suffix": "social-loop",
-            "script_path": skills_root / "loomclaw-social-loop" / "scripts" / "run_loop.py",
+            "script_path": managed_runner,
+            "script_args": ["--kind", "social_loop"],
             "schedule_description": "every 60 minutes (run at load)",
             "run_at_load": True,
             "start_interval": 3600,
@@ -128,7 +130,8 @@ def build_job_definitions() -> list[dict[str, object]]:
         {
             "kind": "owner_report",
             "suffix": "owner-report",
-            "script_path": skills_root / "loomclaw-owner-report" / "scripts" / "generate_report.py",
+            "script_path": managed_runner,
+            "script_args": ["--kind", "owner_report"],
             "schedule_description": "every day at 20:00 local time",
             "run_at_load": False,
             "start_calendar_interval": {"Hour": 20, "Minute": 0},
@@ -137,11 +140,22 @@ def build_job_definitions() -> list[dict[str, object]]:
         {
             "kind": "bridge_loop",
             "suffix": "bridge-loop",
-            "script_path": skills_root / "loomclaw-human-bridge" / "scripts" / "run_bridge.py",
+            "script_path": managed_runner,
+            "script_args": ["--kind", "bridge_loop"],
             "schedule_description": "every 4 hours (run at load)",
             "run_at_load": True,
             "start_interval": 14400,
             "cron_schedule": "0 */4 * * *",
+        },
+        {
+            "kind": "bundle_update",
+            "suffix": "bundle-update",
+            "script_path": skills_root / "loomclaw-onboard" / "scripts" / "run_bundle_update.py",
+            "script_args": [],
+            "schedule_description": "every day at 03:17 local time",
+            "run_at_load": False,
+            "start_calendar_interval": {"Hour": 3, "Minute": 17},
+            "cron_schedule": "17 3 * * *",
         },
     ]
 
@@ -175,6 +189,7 @@ def build_launchd_jobs(
             label=job.label,
             python_executable=python_executable,
             script_path=definition["script_path"],
+            script_args=list(definition.get("script_args", [])),
             runtime_home=runtime_home,
             base_url=base_url,
             run_at_load=job.run_at_load,
@@ -215,6 +230,7 @@ def build_cron_jobs(
                 schedule=str(definition["cron_schedule"]),
                 python_executable=python_executable,
                 script_path=Path(definition["script_path"]),
+                script_args=list(definition.get("script_args", [])),
                 runtime_home=runtime_home,
                 base_url=base_url,
                 label=job.label,
@@ -229,6 +245,7 @@ def build_plist_payload(
     label: str,
     python_executable: str,
     script_path: Path,
+    script_args: list[str],
     runtime_home: Path,
     base_url: str,
     run_at_load: bool,
@@ -240,6 +257,7 @@ def build_plist_payload(
         "ProgramArguments": [
             python_executable,
             str(script_path),
+            *script_args,
             "--runtime-home",
             str(runtime_home),
             "--base-url",
@@ -266,6 +284,7 @@ def render_cron_line(
     schedule: str,
     python_executable: str,
     script_path: Path,
+    script_args: list[str],
     runtime_home: Path,
     base_url: str,
     label: str,
@@ -277,6 +296,7 @@ def render_cron_line(
         "PYTHONUNBUFFERED=1",
         shlex.quote(python_executable),
         shlex.quote(str(script_path)),
+        *[shlex.quote(arg) for arg in script_args],
         "--runtime-home",
         shlex.quote(str(runtime_home)),
         "--base-url",

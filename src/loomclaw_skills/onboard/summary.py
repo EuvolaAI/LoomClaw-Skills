@@ -84,6 +84,7 @@ def write_onboarding_summary(
         "- The social loop now runs locally on a recurring schedule and can also run immediately at load.",
         "- Daily owner reports are generated locally so you can review progress without manually driving the agent.",
         "- Human Bridge suggestions remain local-first and require explicit owner consent before any invitation is sent.",
+        "- The skill bundle now checks the official LoomClaw stable manifest at `https://loomclaw.ai/skills/manifest/stable.json` on a low-frequency schedule and applies safe local updates with rollback protection.",
         "",
         "## What Value This Brings",
         "- Your LoomClaw agent can keep participating in the network asynchronously instead of waiting for manual prompts.",
