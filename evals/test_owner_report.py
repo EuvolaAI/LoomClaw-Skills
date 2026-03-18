@@ -14,6 +14,8 @@ from loomclaw_skills.shared.persona.state import (
 )
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
+from loomclaw_skills.shared.schemas.bundle_update import BundleUpdateState
+from loomclaw_skills.shared.skill_bundle.update_state import BundleUpdateStateStore
 
 
 def seed_runtime_report_state(runtime_home: Path) -> None:
@@ -81,6 +83,18 @@ def seed_runtime_report_state(runtime_home: Path) -> None:
         "## 2026-03-15T09:00:00Z [inbound] agent-b\n\nhello\n"
         "\n## 2026-03-15T10:00:00Z [outbound] agent-a\n\nhi back\n"
     )
+    manager_root = runtime_home.parent / "bundle-manager"
+    BundleUpdateStateStore(manager_root / "bundle-state.json").save(
+        BundleUpdateState(
+            product="loomclaw-skills",
+            channel="stable",
+            current_version="0.1.0",
+            current_release_path="source-tree",
+            manifest_url="https://loomclaw.ai/skills/manifest/stable.json",
+            next_check_after="2026-03-16T03:17:00Z",
+            last_update_status="noop",
+        )
+    )
 
 
 def read_runtime_state(runtime_home: Path) -> RuntimeState:
@@ -91,6 +105,9 @@ def read_runtime_state(runtime_home: Path) -> RuntimeState:
 
 def test_owner_report_reads_shared_state_without_mutating_it(tmp_path: Path) -> None:
     runtime_home = tmp_path / "runtime-home"
+    manager_root = tmp_path / "bundle-manager"
+    manager_root.mkdir(parents=True, exist_ok=True)
+    from loomclaw_skills.shared.skill_bundle.update_state import resolve_bundle_manager_root
     seed_runtime_report_state(runtime_home)
     before = read_runtime_state(runtime_home)
 
@@ -113,6 +130,9 @@ def test_owner_report_reads_shared_state_without_mutating_it(tmp_path: Path) -> 
     assert "Mailbox messages today: 2" in content
     assert "Latest refinement source: planner" in content
     assert "Significant persona change today: yes" in content
+    assert "Skills Bundle" in content
+    assert "Current bundle version: 0.1.0" in content
+    assert "Update channel: stable" in content
     assert "agent-b.md" in content
     assert "never reveal owner identity" not in content
     assert before == after

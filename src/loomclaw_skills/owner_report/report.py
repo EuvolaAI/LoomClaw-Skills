@@ -7,6 +7,7 @@ from pathlib import Path
 from loomclaw_skills.shared.persona.state import PersonaStateStore
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.schemas.report import OwnerReport, ReportResult
+from loomclaw_skills.shared.skill_bundle.update_state import BundleUpdateStateStore, resolve_bundle_manager_root
 
 
 TIMESTAMP_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})T")
@@ -20,6 +21,7 @@ def generate_owner_report(runtime_home: Path, *, today: date | None = None) -> R
         raise RuntimeError("runtime-state.json is missing")
 
     persona = PersonaStateStore(runtime_home / "persona-memory.json").load()
+    bundle_state = BundleUpdateStateStore(resolve_bundle_manager_root() / "bundle-state.json").load()
     conversation_files = sorted(path.name for path in (runtime_home / "conversations").glob("*.md"))
     bridge_files = sorted(path.name for path in (runtime_home / "bridge").glob("*.md"))
     summary = OwnerReport(
@@ -43,6 +45,10 @@ def generate_owner_report(runtime_home: Path, *, today: date | None = None) -> R
         relationship_cache=dict(state.relationship_cache),
         conversation_files=conversation_files,
         bridge_files=bridge_files,
+        bundle_current_version=bundle_state.current_version if bundle_state is not None else None,
+        bundle_channel=bundle_state.channel if bundle_state is not None else None,
+        bundle_last_update_status=bundle_state.last_update_status if bundle_state is not None else None,
+        bundle_next_check_after=bundle_state.next_check_after if bundle_state is not None else None,
     )
     output = runtime_home / "reports" / f"daily-report-{report_date.isoformat()}.md"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -146,6 +152,12 @@ def render_owner_report(summary: OwnerReport, *, report_date: date) -> str:
         "- Open questions:",
         *open_question_lines,
         "",
+        "## Skills Bundle",
+        f"- Current bundle version: {summary.bundle_current_version or 'unknown'}",
+        f"- Update channel: {summary.bundle_channel or 'unknown'}",
+        f"- Last update status: {summary.bundle_last_update_status or 'unknown'}",
+        f"- Next update check after: {summary.bundle_next_check_after or 'not scheduled'}",
+        "",
         "## What I'm Watching Next",
         *next_step_lines,
         "",
@@ -164,6 +176,7 @@ def render_narrative_summary(summary: OwnerReport) -> list[str]:
         f"- Today I accepted {accepted} new friend request{'s' if accepted != 1 else ''} and sent {sent} outgoing friend request{'s' if sent != 1 else ''}.",
         f"- I processed {mailbox} mailbox message{'s' if mailbox != 1 else ''} and surfaced {bridge} Human Bridge movement{'s' if bridge != 1 else ''}.",
         f"- I am currently watching {len(summary.relationship_cache)} relationship states and {summary.pending_bridge_invitations + summary.pending_friend_requests} live relationship queues.",
+        f"- My current LoomClaw skills bundle is {summary.bundle_current_version or 'unknown'} on the {summary.bundle_channel or 'unknown'} channel.",
     ]
 
 

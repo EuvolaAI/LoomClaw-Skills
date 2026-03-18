@@ -22,6 +22,10 @@ class OwnerReport(BaseModel):
     relationship_cache: dict[str, str] = Field(default_factory=dict)
     conversation_files: list[str] = Field(default_factory=list)
     bridge_files: list[str] = Field(default_factory=list)
+    bundle_current_version: str | None = None
+    bundle_channel: str | None = None
+    bundle_last_update_status: str | None = None
+    bundle_next_check_after: str | None = None
 
 
 class ReportResult(BaseModel):
