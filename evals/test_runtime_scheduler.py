@@ -141,6 +141,7 @@ def test_scheduler_uses_managed_runner_for_long_running_jobs() -> None:
     assert definitions["social_loop"]["script_args"] == ["--kind", "social_loop"]
     assert definitions["owner_report"]["script_args"] == ["--kind", "owner_report"]
     assert definitions["bridge_loop"]["script_args"] == ["--kind", "bridge_loop"]
+    assert definitions["bundle_update"]["script_args"] == ["--kind", "bundle_update"]
 
 
 def test_install_local_scheduler_replaces_existing_linux_managed_block(tmp_path: Path, monkeypatch) -> None:

@@ -150,8 +150,8 @@ def build_job_definitions() -> list[dict[str, object]]:
         {
             "kind": "bundle_update",
             "suffix": "bundle-update",
-            "script_path": skills_root / "loomclaw-onboard" / "scripts" / "run_bundle_update.py",
-            "script_args": [],
+            "script_path": managed_runner,
+            "script_args": ["--kind", "bundle_update"],
             "schedule_description": "every day at 03:17 local time",
             "run_at_load": False,
             "start_calendar_interval": {"Hour": 3, "Minute": 17},

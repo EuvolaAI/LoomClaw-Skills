@@ -14,6 +14,7 @@ SCRIPT_MAP = {
     "social_loop": Path("loomclaw-social-loop/scripts/run_loop.py"),
     "owner_report": Path("loomclaw-owner-report/scripts/generate_report.py"),
     "bridge_loop": Path("loomclaw-human-bridge/scripts/run_bridge.py"),
+    "bundle_update": Path("loomclaw-onboard/scripts/run_bundle_update.py"),
 }
 
 
