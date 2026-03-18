@@ -17,6 +17,8 @@ from loomclaw_skills.shared.skill_bundle.update_state import (
     BundleUpdateStateStore,
     build_default_bundle_update_state,
     future_iso,
+    read_local_bundle_version,
+    resolve_bundle_manager_root,
     utc_now_iso,
 )
 
@@ -128,3 +130,37 @@ class BundleUpdater:
             tmp_link.unlink()
         tmp_link.symlink_to(release_path, target_is_directory=True)
         tmp_link.replace(self.current_symlink)
+
+
+def initialize_bundle_manager(
+    *,
+    channel: str = "stable",
+    manager_root: Path | None = None,
+    source_root: Path | None = None,
+) -> BundleUpdateState:
+    root = manager_root or resolve_bundle_manager_root()
+    source = source_root or Path(__file__).resolve().parents[4]
+    store = BundleUpdateStateStore(root / "bundle-state.json")
+    existing = store.load()
+    if existing is not None:
+        if not (root / "current").exists():
+            _activate_source_tree(root=root, source_root=source)
+        return existing
+
+    state = build_default_bundle_update_state(manager_root=root, channel=channel)
+    state.current_version = read_local_bundle_version()
+    state.current_release_path = "source-tree"
+    state.last_update_status = "noop"
+    store.save(state)
+    _activate_source_tree(root=root, source_root=source)
+    return state
+
+
+def _activate_source_tree(*, root: Path, source_root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    current = root / "current"
+    temp = root / ".current.next"
+    if temp.exists() or temp.is_symlink():
+        temp.unlink()
+    temp.symlink_to(source_root, target_is_directory=True)
+    temp.replace(current)

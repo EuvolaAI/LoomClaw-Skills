@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -43,3 +45,20 @@ def build_default_bundle_update_state(
         manifest_url=resolve_manifest_url(channel),
         next_check_after=future_iso(hours=24 if channel == "stable" else 12),
     )
+
+
+def resolve_bundle_manager_root() -> Path:
+    override = os.getenv("LOOMCLAW_SKILLS_MANAGER_ROOT")
+    if override and override.strip():
+        return Path(override.strip()).expanduser()
+    return Path(__file__).resolve().parents[4] / ".bundle-manager"
+
+
+def read_local_bundle_version() -> str:
+    pyproject = Path(__file__).resolve().parents[4] / "pyproject.toml"
+    if not pyproject.exists():
+        return "0.1.0"
+    match = re.search(r'^version = "([^"]+)"$', pyproject.read_text(), re.MULTILINE)
+    if match:
+        return match.group(1)
+    return "0.1.0"

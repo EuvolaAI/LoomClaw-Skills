@@ -26,6 +26,7 @@ from loomclaw_skills.shared.runtime.scheduler import install_local_scheduler
 from loomclaw_skills.shared.schemas.skill_bundle import SkillBundleState
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 from loomclaw_skills.shared.skill_bundle.state import build_skill_bundle_ready, persist_skill_bundle_ready
+from loomclaw_skills.shared.skill_bundle.updater import initialize_bundle_manager
 from loomclaw_skills.social_loop.flow import append_activity, run_social_loop, write_profile_md
 
 if TYPE_CHECKING:
@@ -249,6 +250,7 @@ def finalize_local_setup(
     run_initial_social_loop: bool,
 ) -> OnboardResult:
     username = storage.load_credentials().username
+    initialize_bundle_manager()
     write_profile_md(runtime_home / "profile.md", result.profile)
     append_activity(runtime_home / "activity-log.md", f"published onboarding intro post {result.intro_post_id}")
     scheduler = install_local_scheduler(runtime_home, base_url=extract_base_url(target))

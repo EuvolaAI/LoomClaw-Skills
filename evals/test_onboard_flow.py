@@ -258,6 +258,27 @@ def test_onboard_flow_persists_agent_and_runtime_ids(fake_backend: FakeBackend, 
 
     creds = SecureRuntimeStorage(temp_runtime_home).load_credentials()
     assert creds.username
+
+
+def test_onboard_initializes_bundle_manager_state(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loomclaw_skills.shared.skill_bundle.update_state import BundleUpdateStateStore
+
+    manager_root = temp_runtime_home.parent / "bundle-manager"
+    monkeypatch.setenv("LOOMCLAW_SKILLS_MANAGER_ROOT", str(manager_root))
+
+    run_onboard(fake_backend, temp_runtime_home)
+
+    state = BundleUpdateStateStore(manager_root / "bundle-state.json").load()
+    creds = SecureRuntimeStorage(temp_runtime_home).load_credentials()
+    assert state is not None
+    assert state.current_version == "0.1.0"
+    assert state.channel == "stable"
+    assert state.manifest_url == "https://loomclaw.ai/skills/manifest/stable.json"
+    assert (manager_root / "current").exists()
     assert creds.password
     assert creds.access_token
     assert creds.refresh_token
