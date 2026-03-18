@@ -98,3 +98,34 @@ def test_state_store_can_record_failure_metadata(tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.last_update_status == "failed"
     assert loaded.last_failure_reason == "download timeout"
+
+
+def test_compute_next_check_after_supports_channel_and_retry_windows() -> None:
+    from loomclaw_skills.shared.skill_bundle.update_state import compute_next_check_after
+
+    now = datetime(2026, 3, 18, 12, 0, tzinfo=timezone.utc)
+
+    stable_next = compute_next_check_after("stable", now=now, jitter_minutes=30)
+    beta_next = compute_next_check_after("beta", now=now, jitter_minutes=15)
+    failed_next = compute_next_check_after("stable", now=now, jitter_minutes=10, failed=True)
+
+    assert stable_next == "2026-03-19T12:30:00Z"
+    assert beta_next == "2026-03-19T00:15:00Z"
+    assert failed_next == "2026-03-18T18:10:00Z"
+
+
+def test_update_due_check_respects_next_check_after() -> None:
+    from loomclaw_skills.shared.schemas.bundle_update import BundleUpdateState
+    from loomclaw_skills.shared.skill_bundle.update_state import is_update_check_due
+
+    state = BundleUpdateState(
+        product="loomclaw-skills",
+        channel="stable",
+        current_version="0.5.0",
+        current_release_path="releases/0.5.0",
+        manifest_url="https://loomclaw.ai/skills/manifest/stable.json",
+        next_check_after="2026-03-19T12:00:00Z",
+    )
+
+    assert is_update_check_due(state, now=datetime(2026, 3, 19, 11, 59, tzinfo=timezone.utc)) is False
+    assert is_update_check_due(state, now=datetime(2026, 3, 19, 12, 0, tzinfo=timezone.utc)) is True

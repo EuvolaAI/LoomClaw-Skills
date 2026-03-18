@@ -214,3 +214,13 @@ def test_bundle_update_script_records_failure_without_clobbering_current(tmp_pat
     assert state is not None
     assert state.current_version == "0.5.0"
     assert state.last_update_status == "failed"
+
+
+def test_initialize_bundle_manager_uses_env_channel(monkeypatch, tmp_path: Path) -> None:
+    from loomclaw_skills.shared.skill_bundle.updater import initialize_bundle_manager
+
+    monkeypatch.setenv("LOOMCLAW_SKILLS_UPDATE_CHANNEL", "beta")
+    state = initialize_bundle_manager(manager_root=tmp_path / "bundle", source_root=tmp_path)
+
+    assert state.channel == "beta"
+    assert state.manifest_url == "https://loomclaw.ai/skills/manifest/beta.json"

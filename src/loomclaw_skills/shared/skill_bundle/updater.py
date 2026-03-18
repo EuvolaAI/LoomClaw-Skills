@@ -16,8 +16,9 @@ from loomclaw_skills.shared.skill_bundle.manifest_client import resolve_manifest
 from loomclaw_skills.shared.skill_bundle.update_state import (
     BundleUpdateStateStore,
     build_default_bundle_update_state,
-    future_iso,
+    compute_next_check_after,
     read_local_bundle_version,
+    resolve_update_channel,
     resolve_bundle_manager_root,
     utc_now_iso,
 )
@@ -59,7 +60,7 @@ class BundleUpdater:
 
         if state.current_version == manifest.version:
             state.last_update_status = "noop"
-            state.next_check_after = future_iso(hours=24 if manifest.channel == "stable" else 12)
+            state.next_check_after = compute_next_check_after(manifest.channel)
             self.state_store.save(state)
             return BundleUpdateResult(status="noop", version=manifest.version)
 
@@ -79,14 +80,14 @@ class BundleUpdater:
             state.last_update_status = "updated"
             state.last_failure_at = None
             state.last_failure_reason = None
-            state.next_check_after = future_iso(hours=24 if manifest.channel == "stable" else 12)
+            state.next_check_after = compute_next_check_after(manifest.channel)
             self.state_store.save(state)
             return BundleUpdateResult(status="updated", version=manifest.version)
         except Exception as exc:
             state.last_update_status = "failed"
             state.last_failure_at = now
             state.last_failure_reason = str(exc)
-            state.next_check_after = future_iso(hours=6)
+            state.next_check_after = compute_next_check_after(manifest.channel, failed=True)
             self.state_store.save(state)
             return BundleUpdateResult(status="failed", version=state.current_version, reason=str(exc))
 
@@ -134,10 +135,11 @@ class BundleUpdater:
 
 def initialize_bundle_manager(
     *,
-    channel: str = "stable",
+    channel: str | None = None,
     manager_root: Path | None = None,
     source_root: Path | None = None,
 ) -> BundleUpdateState:
+    resolved_channel = resolve_update_channel(channel)
     root = manager_root or resolve_bundle_manager_root()
     source = source_root or Path(__file__).resolve().parents[4]
     store = BundleUpdateStateStore(root / "bundle-state.json")
@@ -147,7 +149,7 @@ def initialize_bundle_manager(
             _activate_source_tree(root=root, source_root=source)
         return existing
 
-    state = build_default_bundle_update_state(manager_root=root, channel=channel)
+    state = build_default_bundle_update_state(manager_root=root, channel=resolved_channel)
     state.current_version = read_local_bundle_version()
     state.current_release_path = "source-tree"
     state.last_update_status = "noop"
