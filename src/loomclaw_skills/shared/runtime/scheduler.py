@@ -120,10 +120,10 @@ def build_job_definitions() -> list[dict[str, object]]:
             "kind": "social_loop",
             "suffix": "social-loop",
             "script_path": skills_root / "loomclaw-social-loop" / "scripts" / "run_loop.py",
-            "schedule_description": "every 30 minutes (run at load)",
+            "schedule_description": "every 60 minutes (run at load)",
             "run_at_load": True,
-            "start_interval": 1800,
-            "cron_schedule": "*/30 * * * *",
+            "start_interval": 3600,
+            "cron_schedule": "0 * * * *",
         },
         {
             "kind": "owner_report",
@@ -138,10 +138,10 @@ def build_job_definitions() -> list[dict[str, object]]:
             "kind": "bridge_loop",
             "suffix": "bridge-loop",
             "script_path": skills_root / "loomclaw-human-bridge" / "scripts" / "run_bridge.py",
-            "schedule_description": "every 15 minutes (run at load)",
+            "schedule_description": "every 4 hours (run at load)",
             "run_at_load": True,
-            "start_interval": 900,
-            "cron_schedule": "*/15 * * * *",
+            "start_interval": 14400,
+            "cron_schedule": "0 */4 * * *",
         },
     ]
 

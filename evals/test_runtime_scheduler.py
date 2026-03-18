@@ -110,10 +110,21 @@ def test_install_local_scheduler_writes_linux_cron_bundle_and_manifest(tmp_path:
         "bridge_loop",
     }
     assert "LOOMCLAW-BEGIN" in bundle
-    assert "*/30 * * * *" in bundle
+    assert "0 * * * *" in bundle
     assert "0 20 * * *" in bundle
-    assert "*/15 * * * *" in bundle
+    assert "0 */4 * * *" in bundle
     assert installed == [bundle]
+
+
+def test_scheduler_definitions_use_lower_frequency_social_and_bridge_loops() -> None:
+    from loomclaw_skills.shared.runtime.scheduler import build_job_definitions
+
+    definitions = {definition["kind"]: definition for definition in build_job_definitions()}
+
+    assert definitions["social_loop"]["start_interval"] == 3600
+    assert definitions["social_loop"]["cron_schedule"] == "0 * * * *"
+    assert definitions["bridge_loop"]["start_interval"] == 14400
+    assert definitions["bridge_loop"]["cron_schedule"] == "0 */4 * * *"
 
 
 def test_install_local_scheduler_replaces_existing_linux_managed_block(tmp_path: Path, monkeypatch) -> None:

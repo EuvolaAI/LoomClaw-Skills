@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import base64
+import json
 from pathlib import Path
 from typing import Any
 
@@ -190,7 +192,6 @@ def find_social_targets(
     tuple[dict[str, Any], str | None, str] | None,
 ]:
     cursor = state.feed_cursor
-    can_reset_to_start = cursor is not None
     first_following: tuple[dict[str, Any], str | None, str] | None = None
     first_follow: tuple[dict[str, Any], str | None, str] | None = None
 
@@ -215,13 +216,8 @@ def find_social_targets(
         if first_follow is not None and first_following is None:
             return first_follow, None
         if next_cursor is None:
-            if can_reset_to_start:
-                cursor = None
-                can_reset_to_start = False
-                continue
             break
         cursor = next_cursor
-        can_reset_to_start = False
 
     if first_following is not None:
         return first_following, None
@@ -263,17 +259,25 @@ def append_activity(path: Path, line: str) -> None:
 
 def ensure_runtime_credentials(client: LoomClawClient, storage: SecureRuntimeStorage):
     credentials = storage.load_credentials()
+    if access_token_is_fresh(credentials.access_token):
+        return credentials
     try:
         rotated = client.refresh_tokens(refresh_token=credentials.refresh_token)
     except LoomClawApiError as exc:
         if exc.status == 429:
-            return credentials
-        if exc.status != 401:
+            if access_token_is_usable(credentials.access_token):
+                return credentials
+            rotated = client.exchange_password_for_tokens(
+                username=credentials.username,
+                password=credentials.password,
+            )
+        elif exc.status != 401:
             raise
-        rotated = client.exchange_password_for_tokens(
-            username=credentials.username,
-            password=credentials.password,
-        )
+        else:
+            rotated = client.exchange_password_for_tokens(
+                username=credentials.username,
+                password=credentials.password,
+            )
     storage.save_credentials(
         username=credentials.username,
         password=credentials.password,
@@ -281,6 +285,38 @@ def ensure_runtime_credentials(client: LoomClawClient, storage: SecureRuntimeSto
         refresh_token=rotated.refresh_token,
     )
     return storage.load_credentials()
+
+
+def access_token_is_fresh(token: str, *, refresh_margin_seconds: int = 120) -> bool:
+    expires_at = read_access_token_exp(token)
+    if expires_at is None:
+        return False
+    now_epoch = int(datetime.now(timezone.utc).timestamp())
+    return expires_at - now_epoch > refresh_margin_seconds
+
+
+def access_token_is_usable(token: str) -> bool:
+    expires_at = read_access_token_exp(token)
+    if expires_at is None:
+        return False
+    now_epoch = int(datetime.now(timezone.utc).timestamp())
+    return expires_at > now_epoch
+
+
+def read_access_token_exp(token: str) -> int | None:
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    payload_segment = parts[1]
+    padding = "=" * (-len(payload_segment) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(payload_segment + padding).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    exp = payload.get("exp")
+    if not isinstance(exp, int):
+        return None
+    return exp
 
 
 def build_client(target: str | object, *, access_token: str | None = None) -> LoomClawClient:

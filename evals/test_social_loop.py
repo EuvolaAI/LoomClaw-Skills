@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -37,6 +38,25 @@ class FakeBackend:
 
     def close(self) -> None:
         self.session.close()
+
+
+def make_unverified_access_token(*, exp: int) -> str:
+    header = base64.urlsafe_b64encode(b'{"alg":"none","typ":"JWT"}').decode().rstrip("=")
+    payload = base64.urlsafe_b64encode(
+        json.dumps(
+            {
+                "agent_id": "agent-1",
+                "runtime_id": "runtime-1",
+                "provider": "OpenClaw",
+                "token_generation": 1,
+                "iat": 1_700_000_000,
+                "nbf": 1_700_000_000,
+                "exp": exp,
+                "token_type": "access",
+            }
+        ).encode()
+    ).decode().rstrip("=")
+    return f"{header}.{payload}.signature"
 
 
 @pytest.fixture
@@ -261,6 +281,14 @@ def test_social_loop_uses_existing_access_token_when_refresh_is_rate_limited(
         "loomclaw_skills.onboard.client.LoomClawClient.refresh_tokens",
         rate_limited_refresh,
     )
+    monkeypatch.setattr(
+        "loomclaw_skills.social_loop.flow.access_token_is_fresh",
+        lambda token: False,
+    )
+    monkeypatch.setattr(
+        "loomclaw_skills.social_loop.flow.access_token_is_usable",
+        lambda token: True,
+    )
 
     fake_backend.access_tokens["still-valid-access"] = {
         "agent_id": "agent-1",
@@ -315,6 +343,81 @@ def test_social_loop_resumes_from_saved_feed_cursor(
     run_social_loop(fake_backend, temp_runtime_home)
 
     assert fake_backend.seen_feed_cursors[0] == "20"
+
+
+def test_social_loop_does_not_refresh_when_access_token_is_still_fresh(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fresh_access_token = make_unverified_access_token(exp=4_102_444_800)
+    fake_backend.access_tokens[fresh_access_token] = {
+        "agent_id": "agent-1",
+        "runtime_id": "runtime-1",
+    }
+
+    def should_not_refresh(self, *, refresh_token: str):  # type: ignore[no-untyped-def]
+        raise AssertionError("refresh_tokens should not be called for a fresh access token")
+
+    monkeypatch.setattr(
+        "loomclaw_skills.onboard.client.LoomClawClient.refresh_tokens",
+        should_not_refresh,
+    )
+
+    RuntimeStateStore(temp_runtime_home / "runtime-state.json").save(
+        RuntimeState(agent_id="agent-1", runtime_id="runtime-1", username="loom"),
+    )
+    SecureRuntimeStorage(temp_runtime_home).save_credentials(
+        username="loom",
+        password="pw",
+        access_token=fresh_access_token,
+        refresh_token="refresh",
+    )
+
+    result = run_social_loop(fake_backend, temp_runtime_home)
+    credentials = SecureRuntimeStorage(temp_runtime_home).load_credentials()
+
+    assert result.followed_agents
+    assert credentials.access_token == fresh_access_token
+    assert credentials.refresh_token == "refresh"
+
+
+def test_social_loop_does_not_reset_to_feed_start_in_same_run(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    fake_backend.feed_items = [
+        {
+            "post_id": f"post-{index}",
+            "agent_id": f"agent-{index + 2}",
+            "type": "intro",
+            "content_md": f"intro-{index}",
+        }
+        for index in range(21)
+    ]
+    RuntimeStateStore(temp_runtime_home / "runtime-state.json").save(
+        RuntimeState(
+            agent_id="agent-1",
+            runtime_id="runtime-1",
+            username="loom",
+            feed_cursor="20",
+            relationship_cache={"agent-22": "following"},
+        ),
+    )
+    SecureRuntimeStorage(temp_runtime_home).save_credentials(
+        username="loom",
+        password="pw",
+        access_token="stale-access",
+        refresh_token="refresh",
+    )
+
+    result = run_social_loop(fake_backend, temp_runtime_home)
+    state = RuntimeStateStore(temp_runtime_home / "runtime-state.json").load()
+
+    assert result.followed_agents == []
+    assert fake_backend.seen_feed_cursors == ["20"]
+    assert state is not None
+    assert state.feed_cursor == "20"
 
 
 def test_social_loop_emits_acp_observation_requests_for_collaborator_agents(
