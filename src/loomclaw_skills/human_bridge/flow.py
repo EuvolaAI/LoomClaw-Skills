@@ -62,6 +62,25 @@ class InvitationResponseResult:
     lock_released: bool
 
 
+@dataclass(frozen=True, slots=True)
+class BridgeReadinessAssessment:
+    total_turns: int
+    inbound_turns: int
+    outbound_turns: int
+    distinct_days: int
+    recent: bool
+
+    @property
+    def is_ready(self) -> bool:
+        return (
+            self.recent
+            and self.total_turns >= 6
+            and self.inbound_turns >= 2
+            and self.outbound_turns >= 2
+            and self.distinct_days >= 2
+        )
+
+
 def run_human_bridge(target: str | object, runtime_home: Path) -> BridgeResult:
     client = _build_authed_client(target, runtime_home)
 
@@ -359,13 +378,12 @@ def derive_bridge_context(runtime_home: Path, *, state: RuntimeState) -> BridgeC
         if not conversation_path.exists():
             continue
         conversation = conversation_path.read_text()
-        if conversation.count("## ") < 4:
-            continue
-        if not conversation_is_recent(conversation):
+        assessment = assess_bridge_readiness(conversation)
+        if not assessment.is_ready:
             continue
         return BridgeContext(
             peer_agent_id=peer_agent_id,
-            summary_markdown=render_derived_bridge_summary(peer_agent_id, conversation),
+            summary_markdown=render_derived_bridge_summary(peer_agent_id, assessment=assessment),
         )
     return None
 
@@ -376,17 +394,26 @@ def save_bridge_context(runtime_home: Path, context: BridgeContext) -> None:
     path.write_text(context.model_dump_json(indent=2))
 
 
-def render_derived_bridge_summary(peer_agent_id: str, conversation_markdown: str) -> str:
-    message_count = conversation_markdown.count("## ")
+def render_derived_bridge_summary(peer_agent_id: str, *, assessment: BridgeReadinessAssessment) -> str:
     return (
         f"Local relationship history suggests `{peer_agent_id}` may merit owner review as a Human Bridge candidate. "
-        "The agents have an established friendship and multiple logged conversation turns, but the final decision should still remain local-first.\n\n"
-        f"Evidence summary: {message_count} logged conversation turns across an existing friendship."
+        "The agents have an established friendship with reciprocal, recent conversation depth across multiple days, but the final decision should still remain local-first.\n\n"
+        "Evidence summary: "
+        f"{assessment.total_turns} logged turns, "
+        f"{assessment.inbound_turns} inbound, "
+        f"{assessment.outbound_turns} outbound, "
+        f"across {assessment.distinct_days} active day(s)."
     )
 
 
 def conversation_is_recent(conversation_markdown: str) -> bool:
+    return assess_bridge_readiness(conversation_markdown).recent
+
+
+def assess_bridge_readiness(conversation_markdown: str) -> BridgeReadinessAssessment:
     timestamps: list[datetime] = []
+    inbound_turns = 0
+    outbound_turns = 0
     for line in conversation_markdown.splitlines():
         if not line.startswith("## "):
             continue
@@ -398,10 +425,27 @@ def conversation_is_recent(conversation_markdown: str) -> bool:
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         timestamps.append(parsed.astimezone(timezone.utc))
+        if "[inbound]" in line:
+            inbound_turns += 1
+        if "[outbound]" in line:
+            outbound_turns += 1
     if not timestamps:
-        return False
+        return BridgeReadinessAssessment(
+            total_turns=0,
+            inbound_turns=0,
+            outbound_turns=0,
+            distinct_days=0,
+            recent=False,
+        )
     freshest = max(timestamps)
-    return freshest >= datetime.now(timezone.utc) - timedelta(days=30)
+    distinct_days = len({timestamp.date().isoformat() for timestamp in timestamps})
+    return BridgeReadinessAssessment(
+        total_turns=len(timestamps),
+        inbound_turns=inbound_turns,
+        outbound_turns=outbound_turns,
+        distinct_days=distinct_days,
+        recent=freshest >= datetime.now(timezone.utc) - timedelta(days=30),
+    )
 
 
 def _build_authed_client(target: str | object, runtime_home: Path) -> LoomClawClient:

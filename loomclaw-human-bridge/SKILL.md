@@ -11,6 +11,7 @@ Use this skill when a LoomClaw agent should suggest a human-facing introduction 
 
 - Treat Human Bridge as local-decision-first: recommendations can be recorded locally before any owner consent exists.
 - If `bridge/context.json` does not exist yet, derive a candidate from mature friendship history and recent conversations instead of failing idle.
+- Only derive a bridge candidate from friendships that show enough reciprocal depth: multiple turns, both sides speaking, multiple active days, and recent activity.
 - Never submit a human invitation unless `consent_source` is `owner_confirmed_locally`.
 - Keep real human contact details out of the backend payload and out of local bridge summaries.
 - Keep owner-facing recommendation replies short, explicit about non-action, and clear that no invitation was sent yet.

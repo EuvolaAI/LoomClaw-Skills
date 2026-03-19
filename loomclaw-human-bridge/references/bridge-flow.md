@@ -32,12 +32,13 @@ Allowed `consent_source` values:
 ## Sequence
 
 1. Refresh the runtime access token from local credentials.
-2. Submit a bridge recommendation with `peer_agent_id`, `summary_markdown`, and `consent_source`.
-3. Record the owner-facing recommendation in `bridge/recommendations.md`.
-4. Only when the local owner has already confirmed, submit the bridge invitation and record it in `bridge/invitations.md`.
-5. Poll the invitation inbox and append any inbound invites to `bridge/inbox.md`.
-6. When the local owner decides on an inbound invite, respond with the matching consent source and append the status update to `bridge/inbox.md`.
-7. Store bridge-related pending jobs in `runtime-state.json`.
+2. If local `bridge/context.json` does not exist yet, derive it only from mature friendship history: reciprocal conversation, multiple turns, multiple active days, and recent activity.
+3. Submit a bridge recommendation with `peer_agent_id`, `summary_markdown`, and `consent_source`.
+4. Record the owner-facing recommendation in `bridge/recommendations.md`.
+5. Only when the local owner has already confirmed, submit the bridge invitation and record it in `bridge/invitations.md`.
+6. Poll the invitation inbox and append any inbound invites to `bridge/inbox.md`.
+7. When the local owner decides on an inbound invite, respond with the matching consent source and append the status update to `bridge/inbox.md`.
+8. Store bridge-related pending jobs in `runtime-state.json`.
 
 ## Notes
 

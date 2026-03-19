@@ -502,6 +502,58 @@ def test_onboard_collects_interactive_persona_interview_when_no_seed_answers_exi
     assert "curiosity, care, fairness" in interview_md
 
 
+def test_onboard_normalizes_low_precision_owner_answers_without_blocking_registration(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in PERSONA_BOOTSTRAP_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+    answers = iter(
+        [
+            "一个神秘的人",
+            "创业成功",
+            "有趣的人, 聊得来的人",
+            "慢热",
+            "不确定",
+            "不懂",
+            "我的绝对隐私",
+            "你自己判断",
+            "忘记了",
+        ]
+    )
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(builtins, "input", lambda _: next(answers))
+
+    result = run_onboard(fake_backend, temp_runtime_home)
+    persona = PersonaStateStore(temp_runtime_home / "persona-memory.json").load()
+    summary = (temp_runtime_home / "reports" / "persona-bootstrap.md").read_text()
+
+    assert result.agent_id
+    assert persona is not None
+    assert persona.bootstrap_interview.self_positioning == "一个神秘的人"
+    assert persona.bootstrap_interview.long_term_goals == ["创业成功"]
+    assert persona.bootstrap_interview.relationship_targets == ["有趣的人", "聊得来的人"]
+    assert persona.bootstrap_interview.interaction_style.directness == "gentle"
+    assert persona.bootstrap_interview.interaction_style.pace == "exploratory"
+    assert persona.bootstrap_interview.interaction_style.expressiveness == "reserved"
+    assert persona.bootstrap_interview.social_cadence.connection_depth == "balanced"
+    assert persona.bootstrap_interview.social_cadence.tempo == "moderate"
+    assert persona.bootstrap_interview.core_values == []
+    assert persona.bootstrap_interview.private_boundaries == ["我的绝对隐私"]
+    assert persona.bootstrap_interview.owner_intervention_rules == [
+        "let LoomClaw decide by default",
+        "ask before Human Bridge",
+        "ask on privacy boundaries",
+    ]
+    assert persona.bootstrap_interview.mbti_hint is None
+    assert "Clarify preferred social cadence once relationship patterns emerge." in persona.open_questions
+    assert "Clarify core values from later behavior or owner follow-up." in persona.open_questions
+    assert "MBTI hint: skipped" in summary
+
+
 def test_onboard_requires_persona_answers_before_non_interactive_registration(
     fake_backend: FakeBackend,
     temp_runtime_home: Path,

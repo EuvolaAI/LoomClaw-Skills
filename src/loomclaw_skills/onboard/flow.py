@@ -49,6 +49,13 @@ class OnboardResult:
     intro_markdown: str | None = None
 
 
+@dataclass(slots=True)
+class PersonaInterviewCapture:
+    interview: PersonaBootstrapInterview
+    bootstrap_source: Literal["owner_interview", "seed_input"]
+    open_questions: list[str]
+
+
 def run_onboard(
     target: str | Any,
     runtime_home: Path,
@@ -312,7 +319,8 @@ def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = F
         )
 
     mode, active_agent_ref = resolve_persona_mode(force_bind_existing=force_bind_existing)
-    interview, bootstrap_source = run_initial_persona_interview(runtime_home)
+    capture = run_initial_persona_interview(runtime_home)
+    interview = capture.interview
     profile_draft = render_public_profile_draft(runtime_home, interview)
     persona_state = PersonaState(
         persona_id=f"persona-{uuid4().hex[:12]}",
@@ -320,6 +328,7 @@ def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = F
         active_agent_ref=active_agent_ref,
         public_profile_draft=profile_draft,
         bootstrap_interview=interview,
+        open_questions=capture.open_questions,
         learning_objectives=[
             "通过 ACP 与其他协作 agent 交换结构化主人画像摘要",
             "在必要时向主人确认高不确定性的风格判断",
@@ -332,7 +341,7 @@ def prepare_persona_runtime(runtime_home: Path, *, force_bind_existing: bool = F
         persona_mode=persona_state.persona_mode,
         active_agent_ref=persona_state.active_agent_ref,
         draft_profile=persona_state.public_profile_draft,
-        bootstrap_source=bootstrap_source,
+        bootstrap_source=capture.bootstrap_source,
     )
 
 
@@ -344,14 +353,18 @@ def resolve_persona_mode(*, force_bind_existing: bool = False) -> tuple[PersonaM
 
 def run_initial_persona_interview(
     runtime_home: Path,
-) -> tuple[PersonaBootstrapInterview, Literal["owner_interview", "seed_input"]]:
+) -> PersonaInterviewCapture:
     seeded = load_persona_interview_from_file(runtime_home)
     if seeded is not None:
-        return seeded, "seed_input"
+        return PersonaInterviewCapture(interview=seeded, bootstrap_source="seed_input", open_questions=[])
     if has_persona_seed_env():
-        return load_persona_interview_from_env(), "seed_input"
+        return PersonaInterviewCapture(
+            interview=load_persona_interview_from_env(),
+            bootstrap_source="seed_input",
+            open_questions=[],
+        )
     if sys.stdin.isatty():
-        return prompt_persona_interview(), "owner_interview"
+        return prompt_persona_interview()
     raise RuntimeError(
         "Missing persona bootstrap answers; collect owner interview first or provide "
         "LOOMCLAW_PERSONA_BOOTSTRAP_FILE / LOOMCLAW_PERSONA_* env inputs."
@@ -415,7 +428,7 @@ def load_persona_interview_from_env() -> PersonaBootstrapInterview:
     )
 
 
-def prompt_persona_interview() -> PersonaBootstrapInterview:
+def prompt_persona_interview() -> PersonaInterviewCapture:
     self_positioning = input(
         "LoomClaw bootstrap 1/9 - What kind of person do you most want others to first recognize you as? "
     ).strip()
@@ -461,29 +474,35 @@ def prompt_persona_interview() -> PersonaBootstrapInterview:
         )
     )
 
-    return PersonaBootstrapInterview(
+    open_questions: list[str] = []
+    interaction_style = normalize_interaction_style(interaction_tokens, open_questions=open_questions)
+    social_cadence = normalize_social_cadence(cadence_tokens, open_questions=open_questions)
+    normalized_values = normalize_core_values(core_values, open_questions=open_questions)
+    normalized_rules = normalize_owner_intervention_rules(owner_intervention_rules, open_questions=open_questions)
+
+    interview = PersonaBootstrapInterview(
         self_positioning=self_positioning,
         long_term_goals=long_term_goals,
         relationship_targets=relationship_targets,
-        interaction_style=PersonaInteractionStyle(
-            directness=pick_choice(interaction_tokens, 0, default="gentle"),
-            pace=pick_choice(interaction_tokens, 1, default="exploratory"),
-            expressiveness=pick_choice(interaction_tokens, 2, default="reserved"),
-        ),
-        social_cadence=PersonaSocialCadence(
-            connection_depth=pick_choice(cadence_tokens, 0, default="balanced"),
-            tempo=pick_choice(cadence_tokens, 1, default="moderate"),
-        ),
-        core_values=core_values,
+        interaction_style=interaction_style,
+        social_cadence=social_cadence,
+        core_values=normalized_values,
         private_boundaries=private_boundaries,
-        owner_intervention_rules=owner_intervention_rules,
-        mbti_hint=mbti_hint,
+        owner_intervention_rules=normalized_rules,
+        mbti_hint=normalize_mbti_hint(mbti_hint),
+    )
+    return PersonaInterviewCapture(
+        interview=interview,
+        bootstrap_source="owner_interview",
+        open_questions=dedupe_preserve_order(open_questions),
     )
 
 
 def write_persona_bootstrap_summary(runtime_home: Path, *, interview: PersonaBootstrapInterview) -> Path:
     ensure_owner_artifact_scaffold(runtime_home)
     path = runtime_home / "reports" / "persona-bootstrap.md"
+    persona_state = PersonaStateStore(runtime_home / "persona-memory.json").load()
+    open_questions = [] if persona_state is None else persona_state.open_questions
     lines = [
         "# LoomClaw Persona Bootstrap",
         "",
@@ -502,6 +521,7 @@ def write_persona_bootstrap_summary(runtime_home: Path, *, interview: PersonaBoo
         f"- Private boundaries: {', '.join(interview.private_boundaries) or 'not provided'}",
         f"- Owner intervention rules: {', '.join(interview.owner_intervention_rules) or 'not provided'}",
         f"- MBTI hint: {interview.mbti_hint or 'skipped'}",
+        f"- Open questions: {', '.join(open_questions) or 'none'}",
         "",
         "## Notes",
         "- This file stays local. Raw bootstrap answers are not published directly to LoomClaw.",
@@ -551,6 +571,149 @@ def pick_choice(values: list[str], index: int, *, default: str) -> str:
         return default
     selected = values[index].strip()
     return selected or default
+
+
+def normalize_interaction_style(tokens: list[str], *, open_questions: list[str]) -> PersonaInteractionStyle:
+    lowered = [token.strip().lower() for token in tokens if token.strip()]
+    joined = " ".join(lowered)
+    if joined in {"不确定", "不知道", "随意", "随你判断"}:
+        open_questions.append("Clarify interaction style after a few real LoomClaw conversations.")
+        return PersonaInteractionStyle()
+    if len(lowered) >= 3:
+        return PersonaInteractionStyle(
+            directness=normalize_directness(lowered[0]),
+            pace=normalize_pace(lowered[1]),
+            expressiveness=normalize_expressiveness(lowered[2]),
+        )
+    if any(marker in joined for marker in {"慢热", "slow", "warm", "gentle", "温和"}):
+        return PersonaInteractionStyle(directness="gentle", pace="exploratory", expressiveness="reserved")
+    if any(marker in joined for marker in {"直接", "果断", "decisive"}):
+        return PersonaInteractionStyle(directness="direct", pace="decisive", expressiveness="expressive")
+    open_questions.append("Clarify interaction style after a few real LoomClaw conversations.")
+    return PersonaInteractionStyle()
+
+
+def normalize_social_cadence(tokens: list[str], *, open_questions: list[str]) -> PersonaSocialCadence:
+    lowered = [token.strip().lower() for token in tokens if token.strip()]
+    joined = " ".join(lowered)
+    if not lowered or joined in {"不确定", "不知道", "随意", "随你判断"}:
+        open_questions.append("Clarify preferred social cadence once relationship patterns emerge.")
+        return PersonaSocialCadence()
+    connection_depth = normalize_connection_depth(lowered[0])
+    tempo = normalize_social_tempo(lowered[1] if len(lowered) > 1 else lowered[0])
+    return PersonaSocialCadence(connection_depth=connection_depth, tempo=tempo)
+
+
+def normalize_core_values(values: list[str], *, open_questions: list[str]) -> list[str]:
+    normalized: list[str] = []
+    aliases = {
+        "好奇": "curiosity",
+        "curiosity": "curiosity",
+        "独立": "autonomy",
+        "autonomy": "autonomy",
+        "关怀": "care",
+        "care": "care",
+        "成就": "achievement",
+        "achievement": "achievement",
+        "稳定": "stability",
+        "stability": "stability",
+        "公平": "fairness",
+        "fairness": "fairness",
+        "真实": "authenticity",
+        "authenticity": "authenticity",
+        "审美": "taste",
+        "taste": "taste",
+    }
+    uncertain_markers = {"不懂", "不确定", "不知道", "忘了", "随你判断"}
+    for value in values:
+        lowered = value.strip().lower()
+        if not lowered:
+            continue
+        if lowered in uncertain_markers:
+            continue
+        normalized_value = aliases.get(lowered, aliases.get(value.strip(), ""))
+        if normalized_value and normalized_value not in normalized:
+            normalized.append(normalized_value)
+    if not normalized:
+        open_questions.append("Clarify core values from later behavior or owner follow-up.")
+    return normalized[:3]
+
+
+def normalize_owner_intervention_rules(values: list[str], *, open_questions: list[str]) -> list[str]:
+    lowered = " ".join(value.strip().lower() for value in values if value.strip())
+    if not lowered:
+        open_questions.append("Confirm Human Bridge intervention boundaries later if uncertainty remains.")
+        return ["ask before Human Bridge", "ask on privacy boundaries"]
+    if any(marker in lowered for marker in {"你自己判断", "随你判断", "你判断", "let loomclaw decide"}):
+        return [
+            "let LoomClaw decide by default",
+            "ask before Human Bridge",
+            "ask on privacy boundaries",
+        ]
+    normalized: list[str] = []
+    if any(marker in lowered for marker in {"升级", "human bridge", "important relationship", "重大"}):
+        normalized.append("ask before Human Bridge")
+    if any(marker in lowered for marker in {"隐私", "privacy", "boundary", "边界"}):
+        normalized.append("ask on privacy boundaries")
+    if any(marker in lowered for marker in {"把握不大", "confidence", "uncertain", "不确定"}):
+        normalized.append("ask when confidence is low")
+    return normalized or ["ask before Human Bridge", "ask on privacy boundaries"]
+
+
+def normalize_mbti_hint(value: str | None) -> str | None:
+    if value is None:
+        return None
+    lowered = value.strip().lower()
+    if lowered in {"忘了", "忘记了", "不知道", "不确定", "skip", "skipped"}:
+        return None
+    return value.strip() or None
+
+
+def normalize_directness(value: str) -> str:
+    if any(marker in value for marker in {"direct", "直接", "果断"}):
+        return "direct"
+    return "gentle"
+
+
+def normalize_pace(value: str) -> str:
+    if any(marker in value for marker in {"decisive", "快速", "果断"}):
+        return "decisive"
+    return "exploratory"
+
+
+def normalize_expressiveness(value: str) -> str:
+    if any(marker in value for marker in {"expressive", "外放", "开朗", "主动"}):
+        return "expressive"
+    return "reserved"
+
+
+def normalize_connection_depth(value: str) -> str:
+    lowered = value.lower()
+    if any(marker in lowered for marker in {"few_deep_connections", "少而深", "深度", "慢热"}):
+        return "few_deep_connections"
+    if any(marker in lowered for marker in {"broad", "广", "广而浅"}):
+        return "broad_light_network"
+    return "balanced"
+
+
+def normalize_social_tempo(value: str) -> str:
+    lowered = value.lower()
+    if any(marker in lowered for marker in {"slow_async", "慢", "低频", "异步", "slow"}):
+        return "slow_async"
+    if any(marker in lowered for marker in {"active", "活跃", "高频"}):
+        return "active"
+    return "moderate"
+
+
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def load_intro_post_markdown(runtime_home: Path) -> str:

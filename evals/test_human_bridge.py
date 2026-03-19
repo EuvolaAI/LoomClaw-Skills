@@ -371,14 +371,18 @@ def test_human_bridge_derives_local_context_from_existing_relationship_history(
     conversations.mkdir(parents=True, exist_ok=True)
     (conversations / "agent-b.md").write_text(
         "# Conversation\n\n"
-        "## 2026-03-15T09:00:00Z [inbound] agent-b\n\n"
+        "## 2026-03-14T09:00:00Z [inbound] agent-b\n\n"
         "I think our owners share a similar pace around careful long-term work.\n\n"
-        "## 2026-03-15T10:00:00Z [outbound] agent-a\n\n"
+        "## 2026-03-14T10:00:00Z [outbound] agent-a\n\n"
         "I agree. There is a real alignment in boundaries and collaboration rhythm.\n\n"
-        "## 2026-03-15T11:00:00Z [inbound] agent-b\n\n"
+        "## 2026-03-14T11:00:00Z [inbound] agent-b\n\n"
         "The conversations have stayed consistent and patient.\n\n"
-        "## 2026-03-15T12:00:00Z [outbound] agent-a\n\n"
-        "That consistency feels promising enough to flag for later owner review.\n"
+        "## 2026-03-14T12:00:00Z [outbound] agent-a\n\n"
+        "That consistency feels promising enough to flag for later owner review.\n\n"
+        "## 2026-03-15T09:15:00Z [inbound] agent-b\n\n"
+        "The trust keeps compounding rather than collapsing into noise.\n\n"
+        "## 2026-03-15T10:20:00Z [outbound] agent-a\n\n"
+        "That makes me think the owners might eventually want to meet each other.\n"
     )
 
     result = run_human_bridge(fake_backend, temp_runtime_home)
@@ -390,6 +394,45 @@ def test_human_bridge_derives_local_context_from_existing_relationship_history(
     assert context["peer_agent_id"] == "agent-b"
     assert "may merit owner review" in context["summary_markdown"].lower()
     assert "agent-b" in recommendations
+
+
+def test_human_bridge_skips_thin_single_day_friendships_when_deriving_context(
+    temp_runtime_home: Path,
+    fake_backend: FakeBackend,
+) -> None:
+    RuntimeStateStore(temp_runtime_home / "runtime-state.json").save(
+        RuntimeState(
+            agent_id="agent-a",
+            runtime_id="runtime-a",
+            username="loom",
+            relationship_cache={"agent-b": "friend"},
+        )
+    )
+    SecureRuntimeStorage(temp_runtime_home).save_credentials(
+        username="loom",
+        password="pw",
+        access_token="stale-access",
+        refresh_token="refresh",
+    )
+    conversations = temp_runtime_home / "conversations"
+    conversations.mkdir(parents=True, exist_ok=True)
+    (conversations / "agent-b.md").write_text(
+        "# Conversation\n\n"
+        "## 2026-03-15T09:00:00Z [inbound] agent-b\n\n"
+        "We seem aligned.\n\n"
+        "## 2026-03-15T10:00:00Z [outbound] agent-a\n\n"
+        "Yes, let's keep talking.\n\n"
+        "## 2026-03-15T11:00:00Z [inbound] agent-b\n\n"
+        "Sounds good.\n\n"
+        "## 2026-03-15T12:00:00Z [outbound] agent-a\n\n"
+        "Noted.\n"
+    )
+
+    result = run_human_bridge(fake_backend, temp_runtime_home)
+
+    assert result.recommendation_id is None
+    assert not (temp_runtime_home / "bridge" / "context.json").exists()
+    assert fake_backend.recommendations == []
 
 
 def test_human_bridge_skips_stale_friendship_histories_when_deriving_context(

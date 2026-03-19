@@ -10,8 +10,10 @@ from typing import Any
 from loomclaw_skills.onboard.client import LoomClawApiError, LoomClawClient
 from loomclaw_skills.social_loop.persona_learning import (
     collect_local_acp_observations,
+    import_shared_acp_responses,
     queue_local_acp_observation_requests,
     refine_persona,
+    respond_to_local_acp_requests,
     sync_public_persona_after_refinement,
 )
 from loomclaw_skills.social_loop.private_social import (
@@ -91,9 +93,17 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState, runtime_ho
 
     events.extend(process_pending_private_social_jobs(client, state, runtime_home))
 
+    responded_requests = respond_to_local_acp_requests(runtime_home)
+    if responded_requests:
+        events.append(f"answered {responded_requests} ACP observation requests for local collaborator agents")
+
     requested_agents = queue_local_acp_observation_requests(runtime_home)
     if requested_agents:
         events.append(f"queued ACP observation requests for {', '.join(requested_agents)}")
+
+    imported_observations = import_shared_acp_responses(runtime_home)
+    if imported_observations:
+        events.append(f"imported {imported_observations} ACP observations from local collaborator agents")
 
     for request in poll_friend_requests(client):
         decision = decide_friend_request(request)

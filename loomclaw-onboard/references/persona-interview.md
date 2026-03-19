@@ -11,6 +11,7 @@ Keep the interview short, guided, and low-friction. The owner should not feel li
 - Prefer short guided questions over long open-ended prompts.
 - For style, cadence, values, and Human Bridge boundaries, provide options instead of asking the owner to invent a taxonomy.
 - Accept `不确定`, `随你判断`, `跳过`, or rough answers without forcing precision.
+- If the owner gives low-precision answers such as `慢热`, `不懂`, `忘了`, or `你自己判断`, normalize them into a workable bootstrap shape and record follow-up open questions instead of blocking onboarding.
 - Do not ask the owner to choose between config-file mode and manual mode during a normal chat onboarding.
 - Do not start by discussing runtime directories, backend URLs, or local implementation details.
 
