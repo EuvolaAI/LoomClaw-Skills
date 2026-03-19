@@ -25,9 +25,8 @@ def seed_runtime_report_state(runtime_home: Path) -> None:
             runtime_id="runtime-a",
             username="loom",
             pending_jobs=[
-                "friend_request:stale-request",
-                "reply:stale-message",
-                "persona_refine:planner",
+                "reply:stale-message:agent-b",
+                "bridge:invitation:bridge-1",
             ],
             relationship_cache={
                 "agent-b": "friend",
@@ -124,7 +123,7 @@ def test_owner_report_reads_shared_state_without_mutating_it(tmp_path: Path) -> 
     assert "What I'm Watching Next" in content
     assert "accepted 1 new friend request" in content
     assert "sent 1 outgoing friend request" in content
-    assert "watching 2 pending runtime jobs" in content
+    assert "watching 3 pending runtime jobs" in content
     assert "Accepted friend requests: 1" in content
     assert "Sent friend requests: 1" in content
     assert "Mailbox messages today: 2" in content

@@ -17,9 +17,12 @@ from loomclaw_skills.social_loop.persona_learning import (
 from loomclaw_skills.social_loop.private_social import (
     decide_friend_request,
     handle_friend_request,
+    find_friend_needing_opener,
     maybe_send_friend_request,
+    maybe_send_conversation_opener,
     poll_friend_requests,
     poll_mailbox,
+    process_pending_private_social_jobs,
 )
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
@@ -86,6 +89,8 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState, runtime_ho
     persona_observations_processed = 0
     events: list[str] = []
 
+    events.extend(process_pending_private_social_jobs(client, state, runtime_home))
+
     requested_agents = queue_local_acp_observation_requests(runtime_home)
     if requested_agents:
         events.append(f"queued ACP observation requests for {', '.join(requested_agents)}")
@@ -97,21 +102,26 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState, runtime_ho
         if decision == "accept":
             accepted_friend_requests.append(agent_id)
             events.append(f"accepted friend request from {agent_id}")
+            opener_status = maybe_send_conversation_opener(client, state, runtime_home, peer_agent_id=agent_id)
+            if opener_status == "sent":
+                events.append(f"sent opening message to {agent_id}")
+            elif opener_status == "queued":
+                events.append(f"queued opening message to {agent_id}")
         else:
             rejected_friend_requests.append(agent_id)
             events.append(f"rejected friend request from {agent_id}")
 
-    mailbox_items = poll_mailbox(client, state, runtime_home)
+    mailbox_result = poll_mailbox(client, state, runtime_home)
+    mailbox_items = mailbox_result.items
     if mailbox_items:
         received_messages = len(mailbox_items)
         events.append(f"processed {received_messages} mailbox messages")
+    events.extend(mailbox_result.events)
 
     observations = collect_local_acp_observations(runtime_home)
     refinement = refine_persona(runtime_home, observations)
     persona_observations_processed = refinement.processed_count
     if persona_observations_processed:
-        for source_agent_id in refinement.sources:
-            state.pending_jobs.append(f"persona_refine:{source_agent_id}")
         unique_sources = ", ".join(sorted(set(refinement.sources)))
         significant = "yes" if refinement.significant_change else "no"
         events.append(f"refined persona from {unique_sources} (significant-change={significant})")
@@ -124,6 +134,14 @@ def run_social_loop_once(client: LoomClawClient, state: RuntimeState, runtime_ho
             events.append("deferred public persona sync until agent-authored drafts are ready")
             if public_sync.guidance_path is not None:
                 events.append(f"wrote public sync request to {public_sync.guidance_path}")
+
+    silent_friend = find_friend_needing_opener(state, runtime_home)
+    if silent_friend is not None:
+        opener_status = maybe_send_conversation_opener(client, state, runtime_home, peer_agent_id=silent_friend)
+        if opener_status == "sent":
+            events.append(f"sent opening message to {silent_friend}")
+        elif opener_status == "queued":
+            events.append(f"queued opening message to {silent_friend}")
 
     primary_candidate, fallback_candidate = find_social_targets(client, state)
     if primary_candidate is not None:
@@ -225,7 +243,7 @@ def find_social_targets(
 
 
 def enqueue_follow_job(state: RuntimeState, candidate_id: str) -> None:
-    state.pending_jobs.append(f"follow:{candidate_id}")
+    return None
 
 
 def read_backend_feed_cursor(feed: dict[str, Any]) -> str | None:

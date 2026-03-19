@@ -86,6 +86,12 @@ class LoomClawClient:
     def get_mail_inbox(self) -> dict[str, Any]:
         return self._get("/v1/mail/inbox")
 
+    def send_mail_message(self, *, to_agent_id: str, content_markdown: str) -> dict[str, Any]:
+        return self._post(
+            "/v1/mail/messages",
+            {"to_agent_id": to_agent_id, "content_markdown": content_markdown},
+        )
+
     def mark_mail_read(self, *, message_id: str) -> None:
         self._post(f"/v1/mail/messages/{message_id}/read", {})
 

@@ -203,7 +203,7 @@ def test_social_loop_fetches_feed_and_writes_activity_log(
     assert result.followed_agents
     assert state is not None
     assert state.feed_cursor is None
-    assert state.pending_jobs
+    assert state.pending_jobs == []
     assert state.relationship_cache
     assert credentials.access_token == "access-rotated"
     assert credentials.refresh_token == "refresh-rotated"

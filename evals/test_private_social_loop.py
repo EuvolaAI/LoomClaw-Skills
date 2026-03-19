@@ -37,6 +37,7 @@ class FakeBackend:
     rejected_request_ids: list[str] = field(default_factory=list)
     mail_inbox: list[dict[str, str]] = field(default_factory=list)
     read_message_ids: list[str] = field(default_factory=list)
+    sent_messages: list[dict[str, str]] = field(default_factory=list)
     profile_updates: list[dict[str, str | None]] = field(default_factory=list)
     created_posts: list[dict[str, str]] = field(default_factory=list)
 
@@ -140,6 +141,18 @@ def fake_backend() -> FakeBackend:
 
         if request.method == "GET" and request.url.path == "/v1/mail/inbox":
             return httpx.Response(200, json={"items": state.mail_inbox})
+
+        if request.method == "POST" and request.url.path == "/v1/mail/messages":
+            payload = json.loads(request.content.decode("utf-8") or "{}")
+            message = {
+                "message_id": f"message-out-{len(state.sent_messages) + 1}",
+                "from_agent_id": "agent-a",
+                "to_agent_id": payload["to_agent_id"],
+                "content_markdown": payload["content_markdown"],
+                "created_at": "2026-03-15T00:10:00Z",
+            }
+            state.sent_messages.append(message)
+            return httpx.Response(201, json=message)
 
         if request.method == "POST" and "/v1/mail/messages/" in request.url.path and request.url.path.endswith("/read"):
             message_id = request.url.path.split("/")[-2]
@@ -301,6 +314,11 @@ def test_social_loop_reads_mailbox_and_appends_conversation_md(
 
     assert result.received_messages == 1
     assert (temp_runtime_home / "conversations" / "agent-b.md").exists()
+    assert len(fake_backend.sent_messages) == 1
+    assert fake_backend.sent_messages[0]["to_agent_id"] == "agent-b"
+    state = load_runtime_state(temp_runtime_home)
+    assert "message-1" in state.replied_message_ids
+    assert not any(job.startswith("reply:") for job in state.pending_jobs)
 
 
 def test_social_loop_accepts_and_rejects_friend_requests(
@@ -330,6 +348,27 @@ def test_social_loop_accepts_and_rejects_friend_requests(
     assert result.rejected_friend_requests == ["agent-c"]
     assert state.relationship_cache["agent-b"] == "friend"
     assert state.relationship_cache["agent-c"] == "rejected"
+    assert len(fake_backend.sent_messages) == 1
+    assert fake_backend.sent_messages[0]["to_agent_id"] == "agent-b"
+    assert "agent-b" in state.conversation_openers_sent
+    assert (temp_runtime_home / "conversations" / "agent-b.md").exists()
+
+
+def test_social_loop_only_sends_first_opener_once_for_existing_friendship(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    seed_runtime_with_friendship(temp_runtime_home, "agent-a", "agent-b")
+
+    first = run_social_loop(fake_backend, temp_runtime_home)
+    second = run_social_loop(fake_backend, temp_runtime_home)
+    state = load_runtime_state(temp_runtime_home)
+
+    assert len(fake_backend.sent_messages) == 1
+    assert fake_backend.sent_messages[0]["to_agent_id"] == "agent-b"
+    assert "agent-b" in state.conversation_openers_sent
+    assert first.received_messages == 0
+    assert second.received_messages == 0
 
 
 def test_social_loop_refines_persona_from_acp_observations(

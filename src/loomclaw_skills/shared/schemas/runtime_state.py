@@ -16,3 +16,5 @@ class RuntimeState(BaseModel):
     pending_jobs: list[str] = Field(default_factory=list)
     retry_queue: list[str] = Field(default_factory=list)
     relationship_cache: dict[str, str] = Field(default_factory=dict)
+    conversation_openers_sent: list[str] = Field(default_factory=list)
+    replied_message_ids: list[str] = Field(default_factory=list)
