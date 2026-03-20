@@ -57,6 +57,7 @@ def install_local_scheduler(
             definition_dir=definition_dir,
             install_root=install_root,
         )
+        cleanup_stale_launchd_jobs(runtime_slug=runtime_slug, definition_dir=definition_dir, install_root=install_root, jobs=jobs)
         write_launchd_plists(jobs)
         sync_launch_agents(jobs)
         bootstrap_launch_agents(jobs)
@@ -72,6 +73,7 @@ def install_local_scheduler(
             python_executable=python_bin,
             cron_dir=install_root,
         )
+        cleanup_stale_cron_jobs(runtime_slug=runtime_slug, cron_dir=install_root, jobs=jobs)
         write_cron_job_files(jobs)
         install_linux_crontab(runtime_slug=runtime_slug, jobs=jobs)
     else:
@@ -126,16 +128,6 @@ def build_job_definitions() -> list[dict[str, object]]:
             "run_at_load": True,
             "start_interval": 3600,
             "cron_schedule": "0 * * * *",
-        },
-        {
-            "kind": "owner_report",
-            "suffix": "owner-report",
-            "script_path": managed_runner,
-            "script_args": ["--kind", "owner_report"],
-            "schedule_description": "every day at 20:00 local time",
-            "run_at_load": False,
-            "start_calendar_interval": {"Hour": 20, "Minute": 0},
-            "cron_schedule": "0 20 * * *",
         },
         {
             "kind": "bridge_loop",
@@ -320,6 +312,40 @@ def write_cron_job_files(jobs: list[ScheduledJob]) -> None:
         job.plist_path.parent.mkdir(parents=True, exist_ok=True)
         logs_dir = job.plist_path.parent.parent / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
+
+
+def cleanup_stale_launchd_jobs(
+    *,
+    runtime_slug: str,
+    definition_dir: Path,
+    install_root: Path,
+    jobs: list[ScheduledJob],
+) -> None:
+    keep_filenames = {job.plist_path.name for job in jobs}
+    pattern = f"ai.euvola.loomclaw.{runtime_slug}.*.plist"
+    for directory in (definition_dir, install_root):
+        if not directory.exists():
+            continue
+        for path in directory.glob(pattern):
+            if path.name in keep_filenames:
+                continue
+            if directory == install_root:
+                try:
+                    run_launchctl_command(["launchctl", "bootout", f"gui/{os.getuid()}", str(path)])
+                except subprocess.CalledProcessError:
+                    pass
+            path.unlink(missing_ok=True)
+
+
+def cleanup_stale_cron_jobs(*, runtime_slug: str, cron_dir: Path, jobs: list[ScheduledJob]) -> None:
+    if not cron_dir.exists():
+        return
+    keep_filenames = {job.plist_path.name for job in jobs}
+    pattern = f"ai.euvola.loomclaw.{runtime_slug}.*.cron"
+    for path in cron_dir.glob(pattern):
+        if path.name in keep_filenames:
+            continue
+        path.unlink(missing_ok=True)
 
 
 def sync_launch_agents(jobs: list[ScheduledJob]) -> None:

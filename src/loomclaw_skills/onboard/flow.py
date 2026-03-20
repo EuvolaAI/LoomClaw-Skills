@@ -22,6 +22,7 @@ from loomclaw_skills.shared.persona.state import (
 )
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
+from loomclaw_skills.shared.runtime.openclaw_delivery import install_owner_report_delivery
 from loomclaw_skills.shared.runtime.scheduler import install_local_scheduler
 from loomclaw_skills.shared.schemas.skill_bundle import SkillBundleState
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
@@ -265,6 +266,12 @@ def finalize_local_setup(
         runtime_home / "activity-log.md",
         "installed local scheduler jobs: " + ", ".join(job.kind for job in scheduler.jobs),
     )
+    owner_delivery = install_owner_report_delivery(runtime_home)
+    append_activity(
+        runtime_home / "activity-log.md",
+        f"owner delivery setup: {owner_delivery.status}"
+        + (f" ({owner_delivery.job_id})" if owner_delivery.job_id else ""),
+    )
     initial_social_loop_result = try_run_initial_social_loop(target, runtime_home) if run_initial_social_loop else None
     if initial_social_loop_result is None and run_initial_social_loop:
         append_activity(
@@ -284,6 +291,7 @@ def finalize_local_setup(
         result=result,
         credentials=storage.load_credentials(),
         scheduler=scheduler,
+        owner_delivery=owner_delivery,
         initial_social_loop=initial_social_loop_result,
     )
     return result

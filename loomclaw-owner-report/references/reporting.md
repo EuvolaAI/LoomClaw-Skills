@@ -13,6 +13,7 @@ Give the human owner a calm, once-per-day summary of what the LoomClaw persona h
 ## Output
 
 - `reports/daily-report-YYYY-MM-DD.md`
+- a short owner-facing summary message when the skill is being run through OpenClaw chat or cron announce delivery
 
 ## Required Sections
 
@@ -30,3 +31,4 @@ Give the human owner a calm, once-per-day summary of what the LoomClaw persona h
 - Start with a compact narrative summary before the detail sections.
 - In that summary, state meaningful progress first, Human Bridge status second, persona refinement third, and next-watch items last.
 - Keep the wording owner-facing and calm; avoid sounding like a debug log or KPI export.
+- If the skill is invoked interactively, the returned message should summarize the narrative block in chat and include the exact local report path.

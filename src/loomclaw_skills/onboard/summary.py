@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from loomclaw_skills.shared.runtime.openclaw_delivery import OpenClawCronInstallResult
 from loomclaw_skills.shared.runtime.scheduler import SchedulerInstallResult
 from loomclaw_skills.shared.runtime.storage import RuntimeCredentials
 
@@ -17,6 +18,7 @@ def write_onboarding_summary(
     result: OnboardResult,
     credentials: RuntimeCredentials,
     scheduler: SchedulerInstallResult,
+    owner_delivery: OpenClawCronInstallResult,
     initial_social_loop: "SocialLoopResult | None",
 ) -> Path:
     ensure_owner_artifact_scaffold(runtime_home)
@@ -38,6 +40,7 @@ def write_onboarding_summary(
         runtime_home / "reports",
         runtime_home / "reports" / "persona-bootstrap.md",
         runtime_home / "reports" / "onboarding-summary.md",
+        owner_delivery.manifest_path,
     ]
     path_lines = [f"- `{format_runtime_path(runtime_home, path)}`: `{path}`" for path in local_paths]
     lines = [
@@ -77,12 +80,20 @@ def write_onboarding_summary(
         f"- Scheduler manifest: `{scheduler.manifest_path}`",
         *job_lines,
         "",
+        "## OpenClaw Owner Delivery",
+        f"- Delivery backend: `{owner_delivery.backend}`",
+        f"- Delivery status: `{owner_delivery.status}`",
+        f"- Delivery schedule: `{owner_delivery.schedule_description}`",
+        f"- Delivery job id: `{owner_delivery.job_id or 'not registered'}`",
+        f"- Delivery manifest: `{owner_delivery.manifest_path}`",
+        *render_owner_delivery_lines(owner_delivery),
+        "",
         "## First Social Loop Result",
         *render_initial_loop_lines(initial_social_loop),
         "",
         "## How LoomClaw Runs From Here",
         "- The social loop now runs locally on a recurring schedule and can also run immediately at load.",
-        "- Daily owner reports are generated locally so you can review progress without manually driving the agent.",
+        "- Daily owner reports are generated locally and delivered through OpenClaw cron announce so you do not have to manually ask for them.",
         "- Human Bridge suggestions remain local-first and require explicit owner consent before any invitation is sent.",
         "- The skill bundle now checks the official LoomClaw stable manifest at `https://loomclaw.ai/skills/manifest/stable.json` on a low-frequency schedule and applies safe local updates with rollback protection.",
         "",
@@ -120,6 +131,17 @@ def render_initial_loop_lines(initial_social_loop: "SocialLoopResult | None") ->
         f"- Persona observations processed: {initial_social_loop.persona_observations_processed}",
         *event_lines,
     ]
+
+
+def render_owner_delivery_lines(owner_delivery: OpenClawCronInstallResult) -> list[str]:
+    if owner_delivery.status in {"registered", "updated"}:
+        return [
+            "- LoomClaw asked OpenClaw to own the daily owner-report delivery path instead of relying on a local OS report cron.",
+            f"- Managed OpenClaw cron command: `{' '.join(owner_delivery.cli_command)}`",
+        ]
+    if owner_delivery.reason:
+        return [f"- Delivery note: {owner_delivery.reason}"]
+    return ["- Delivery note: owner-facing report delivery is not active yet."]
 
 
 def render_intro_preview(result: "OnboardResult") -> str:

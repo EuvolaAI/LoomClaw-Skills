@@ -26,6 +26,7 @@ from loomclaw_skills.shared.persona.state import (
 )
 from loomclaw_skills.shared.runtime.state import RuntimeStateStore
 from loomclaw_skills.shared.runtime.storage import SecureRuntimeStorage
+from loomclaw_skills.shared.runtime.openclaw_delivery import OpenClawCronInstallResult
 from loomclaw_skills.shared.schemas.runtime_state import RuntimeState
 from loomclaw_skills.shared.skill_bundle.state import DEFAULT_LOOMCLAW_SKILL_BUNDLE, SkillBundleStore
 from loomclaw_skills.social_loop.flow import SocialLoopResult
@@ -97,29 +98,41 @@ def stub_local_runtime_automation(monkeypatch: pytest.MonkeyPatch) -> None:
                     label="ai.euvola.loomclaw.runtime.social-loop",
                     plist_path=runtime_home / "launchd" / "social-loop.plist",
                     installed_plist_path=runtime_home / "LaunchAgents" / "social-loop.plist",
-                    schedule_description="every 30 minutes (run at load)",
+                    schedule_description="every 60 minutes (run at load)",
                     run_at_load=True,
                 ),
                 ScheduledJob(
-                    kind="owner_report",
-                    label="ai.euvola.loomclaw.runtime.owner-report",
-                    plist_path=runtime_home / "launchd" / "owner-report.plist",
-                    installed_plist_path=runtime_home / "LaunchAgents" / "owner-report.plist",
-                    schedule_description="every day at 20:00 local time",
+                    kind="bridge_loop",
+                    label="ai.euvola.loomclaw.runtime.bridge-loop",
+                    plist_path=runtime_home / "launchd" / "bridge-loop.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "bridge-loop.plist",
+                    schedule_description="every 4 hours (run at load)",
+                    run_at_load=True,
+                ),
+                ScheduledJob(
+                    kind="bundle_update",
+                    label="ai.euvola.loomclaw.runtime.bundle-update",
+                    plist_path=runtime_home / "launchd" / "bundle-update.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "bundle-update.plist",
+                    schedule_description="every day at 03:17 local time",
                     run_at_load=False,
-                ),
-                ScheduledJob(
-                    kind="bridge_sync",
-                    label="ai.euvola.loomclaw.runtime.bridge-sync",
-                    plist_path=runtime_home / "launchd" / "bridge-sync.plist",
-                    installed_plist_path=runtime_home / "LaunchAgents" / "bridge-sync.plist",
-                    schedule_description="every 15 minutes (run at load)",
-                    run_at_load=True,
                 ),
             ],
         )
 
     monkeypatch.setattr("loomclaw_skills.onboard.flow.install_local_scheduler", fake_scheduler)
+    monkeypatch.setattr(
+        "loomclaw_skills.onboard.flow.install_owner_report_delivery",
+        lambda runtime_home: OpenClawCronInstallResult(
+            backend="openclaw_cron",
+            status="registered",
+            job_id="job-owner-report-1",
+            job_name=f"LoomClaw owner report / {runtime_home.name}",
+            manifest_path=runtime_home / "openclaw" / "owner-report-delivery.json",
+            schedule_description="every day at 20:00 local time",
+            cli_command=["openclaw", "cron", "add"],
+        ),
+    )
     monkeypatch.setattr(
         "loomclaw_skills.onboard.flow.try_run_initial_social_loop",
         lambda target, runtime_home: None,
@@ -837,18 +850,38 @@ def test_onboard_writes_owner_facing_summary(
                     label="ai.euvola.loomclaw.runtime.social-loop",
                     plist_path=runtime_home / "launchd" / "social-loop.plist",
                     installed_plist_path=runtime_home / "LaunchAgents" / "social-loop.plist",
-                    schedule_description="every 30 minutes (run at load)",
+                    schedule_description="every 60 minutes (run at load)",
                     run_at_load=True,
                 ),
                 ScheduledJob(
-                    kind="owner_report",
-                    label="ai.euvola.loomclaw.runtime.owner-report",
-                    plist_path=runtime_home / "launchd" / "owner-report.plist",
-                    installed_plist_path=runtime_home / "LaunchAgents" / "owner-report.plist",
-                    schedule_description="every day at 20:00 local time",
+                    kind="bridge_loop",
+                    label="ai.euvola.loomclaw.runtime.bridge-loop",
+                    plist_path=runtime_home / "launchd" / "bridge-loop.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "bridge-loop.plist",
+                    schedule_description="every 4 hours (run at load)",
+                    run_at_load=True,
+                ),
+                ScheduledJob(
+                    kind="bundle_update",
+                    label="ai.euvola.loomclaw.runtime.bundle-update",
+                    plist_path=runtime_home / "launchd" / "bundle-update.plist",
+                    installed_plist_path=runtime_home / "LaunchAgents" / "bundle-update.plist",
+                    schedule_description="every day at 03:17 local time",
                     run_at_load=False,
                 ),
             ],
+        ),
+    )
+    monkeypatch.setattr(
+        "loomclaw_skills.onboard.flow.install_owner_report_delivery",
+        lambda runtime_home: OpenClawCronInstallResult(
+            backend="openclaw_cron",
+            status="registered",
+            job_id="job-owner-report-1",
+            job_name=f"LoomClaw owner report / {runtime_home.name}",
+            manifest_path=runtime_home / "openclaw" / "owner-report-delivery.json",
+            schedule_description="every day at 20:00 local time",
+            cli_command=["openclaw", "cron", "add"],
         ),
     )
     monkeypatch.setattr(
@@ -894,6 +927,9 @@ def test_onboard_writes_owner_facing_summary(
     assert "reports/" in summary
     assert "followed agent-2" in summary
     assert "social loop" in summary.lower()
+    assert "OpenClaw Owner Delivery" in summary
+    assert "openclaw_cron" in summary
+    assert "job-owner-report-1" in summary
     assert "I move through LoomClaw slowly and on purpose." in summary
     assert "access_token" not in summary
     assert "refresh_token" not in summary

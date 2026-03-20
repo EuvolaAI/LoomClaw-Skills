@@ -32,12 +32,11 @@ def test_install_local_scheduler_writes_launchd_bundle_and_manifest(tmp_path: Pa
     assert manifest_payload["launch_agents_dir"] == str(launch_agents_dir)
     assert {job["kind"] for job in manifest_payload["jobs"]} == {
         "social_loop",
-        "owner_report",
         "bridge_loop",
         "bundle_update",
     }
-    assert len(list((runtime_home / "launchd").glob("*.plist"))) == 4
-    assert len(list(launch_agents_dir.glob("*.plist"))) == 4
+    assert len(list((runtime_home / "launchd").glob("*.plist"))) == 3
+    assert len(list(launch_agents_dir.glob("*.plist"))) == 3
     assert any(command[:2] == ["launchctl", "bootstrap"] for command in commands)
 
 
@@ -68,8 +67,36 @@ def test_install_local_scheduler_is_idempotent_for_same_runtime(tmp_path: Path, 
     )
 
     assert [job.label for job in first.jobs] == [job.label for job in second.jobs]
-    assert len(list(launch_agents_dir.glob("*.plist"))) == 4
-    assert len(commands) == 16
+    assert len(list(launch_agents_dir.glob("*.plist"))) == 3
+    assert len(commands) == 12
+
+
+def test_install_local_scheduler_removes_stale_owner_report_launchd_job(tmp_path: Path, monkeypatch) -> None:
+    from loomclaw_skills.shared.runtime.scheduler import install_local_scheduler
+
+    runtime_home = tmp_path / "runtime-home"
+    launch_agents_dir = tmp_path / "LaunchAgents"
+    commands: list[list[str]] = []
+
+    monkeypatch.setenv("LOOMCLAW_LAUNCH_AGENTS_DIR", str(launch_agents_dir))
+    monkeypatch.setattr(
+        "loomclaw_skills.shared.runtime.scheduler.run_launchctl_command",
+        lambda args: commands.append(args),
+    )
+
+    stale = launch_agents_dir / "ai.euvola.loomclaw.runtime-home.owner-report.plist"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text("stale")
+
+    install_local_scheduler(
+        runtime_home,
+        base_url="https://loomclaw.ai",
+        python_executable="/tmp/loomclaw-python",
+        platform_name="darwin",
+    )
+
+    assert not stale.exists()
+    assert any(command[:2] == ["launchctl", "bootout"] for command in commands)
 
 
 def test_install_local_scheduler_writes_linux_cron_bundle_and_manifest(tmp_path: Path, monkeypatch) -> None:
@@ -107,13 +134,11 @@ def test_install_local_scheduler_writes_linux_cron_bundle_and_manifest(tmp_path:
     assert manifest_payload["install_root"] == str(cron_dir)
     assert {job["kind"] for job in manifest_payload["jobs"]} == {
         "social_loop",
-        "owner_report",
         "bridge_loop",
         "bundle_update",
     }
     assert "LOOMCLAW-BEGIN" in bundle
     assert "0 * * * *" in bundle
-    assert "0 20 * * *" in bundle
     assert "0 */4 * * *" in bundle
     assert "17 3 * * *" in bundle
     assert installed == [bundle]
@@ -139,7 +164,6 @@ def test_scheduler_uses_managed_runner_for_long_running_jobs() -> None:
 
     assert str(definitions["social_loop"]["script_path"]).endswith("loomclaw-onboard/scripts/run_managed_skill.py")
     assert definitions["social_loop"]["script_args"] == ["--kind", "social_loop"]
-    assert definitions["owner_report"]["script_args"] == ["--kind", "owner_report"]
     assert definitions["bridge_loop"]["script_args"] == ["--kind", "bridge_loop"]
     assert definitions["bundle_update"]["script_args"] == ["--kind", "bundle_update"]
 
