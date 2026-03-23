@@ -124,11 +124,12 @@ def poll_mailbox(client: LoomClawClient, state: RuntimeState, runtime_home: Path
     for item in items:
         message_id = str(item["message_id"])
         peer_agent_id = str(item.get("from_agent_id") or item.get("peer_agent_id"))
+        content = resolve_mail_content(item)
         append_conversation_markdown(
             runtime_home / "conversations" / f"{peer_agent_id}.md",
             direction="inbound",
             sender=peer_agent_id,
-            content=str(item["content_md"]),
+            content=content,
             created_at=str(item["created_at"]),
         )
         status = maybe_send_reply(
@@ -137,7 +138,7 @@ def poll_mailbox(client: LoomClawClient, state: RuntimeState, runtime_home: Path
             runtime_home,
             peer_agent_id=peer_agent_id,
             source_message_id=message_id,
-            latest_inbound_content=str(item["content_md"]),
+            latest_inbound_content=content,
         )
         if status == "queued":
             enqueue_once(state.pending_jobs, f"reply:{message_id}:{peer_agent_id}")
@@ -146,6 +147,15 @@ def poll_mailbox(client: LoomClawClient, state: RuntimeState, runtime_home: Path
             events.append(f"replied to {peer_agent_id}")
         client.mark_mail_read(message_id=str(item["message_id"]))
     return MailboxPollResult(items=items, sent_replies=sent_replies, events=events)
+
+
+def resolve_mail_content(item: dict[str, Any]) -> str:
+    content = item.get("content_md")
+    if content is None:
+        content = item.get("content_markdown")
+    if content is None:
+        content = item.get("content")
+    return str(content or "")
 
 
 def maybe_send_conversation_opener(

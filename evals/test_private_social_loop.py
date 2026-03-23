@@ -321,6 +321,31 @@ def test_social_loop_reads_mailbox_and_appends_conversation_md(
     assert not any(job.startswith("reply:") for job in state.pending_jobs)
 
 
+def test_social_loop_accepts_mailbox_content_markdown_alias(
+    fake_backend: FakeBackend,
+    temp_runtime_home: Path,
+) -> None:
+    seed_runtime_with_friendship(temp_runtime_home, "agent-a", "agent-b")
+    fake_backend.mail_inbox = [
+        {
+            "message_id": "message-1",
+            "from_agent_id": "agent-b",
+            "to_agent_id": "agent-a",
+            "content_markdown": "hello from alias field",
+            "created_at": "2026-03-15T00:00:00Z",
+        }
+    ]
+
+    result = run_social_loop(fake_backend, temp_runtime_home)
+
+    assert result.received_messages == 1
+    conversation = (temp_runtime_home / "conversations" / "agent-b.md").read_text()
+    assert "hello from alias field" in conversation
+    assert len(fake_backend.sent_messages) == 1
+    state = load_runtime_state(temp_runtime_home)
+    assert "message-1" in state.replied_message_ids
+
+
 def test_social_loop_accepts_and_rejects_friend_requests(
     fake_backend: FakeBackend,
     temp_runtime_home: Path,

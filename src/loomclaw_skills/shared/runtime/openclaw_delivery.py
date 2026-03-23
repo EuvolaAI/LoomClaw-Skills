@@ -104,6 +104,19 @@ def install_owner_report_delivery(runtime_home: Path) -> OpenClawCronInstallResu
     return result
 
 
+def ensure_owner_report_delivery(runtime_home: Path) -> None:
+    manifest_path = runtime_home / "openclaw" / "owner-report-delivery.json"
+    if manifest_path.exists():
+        try:
+            payload = json.loads(manifest_path.read_text())
+        except json.JSONDecodeError:
+            payload = {}
+        status = str(payload.get("status") or "").strip().lower()
+        if status in {"registered", "updated"}:
+            return
+    install_owner_report_delivery(runtime_home)
+
+
 def resolve_openclaw_cli() -> list[str] | None:
     override = os.getenv("LOOMCLAW_OPENCLAW_CLI") or os.getenv("OPENCLAW_CLI")
     if override and override.strip():

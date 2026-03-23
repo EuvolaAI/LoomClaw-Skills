@@ -7,6 +7,12 @@ import sys
 
 
 SCRIPT_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = SCRIPT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from loomclaw_skills.shared.runtime.openclaw_delivery import ensure_owner_report_delivery
+
 MANAGER_ROOT = SCRIPT_ROOT / ".bundle-manager"
 ACTIVE_RELEASE = MANAGER_ROOT / "current"
 
@@ -33,6 +39,7 @@ def main() -> None:
     parser.add_argument("--base-url")
     args = parser.parse_args()
 
+    ensure_owner_report_delivery(Path(args.runtime_home))
     target = resolve_target_script(args.kind)
     command = [sys.executable, str(target), "--runtime-home", args.runtime_home]
     if args.base_url:

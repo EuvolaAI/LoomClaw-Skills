@@ -104,3 +104,50 @@ def test_install_owner_report_delivery_records_unavailable_cli_without_failing(t
     assert result.job_id is None
     assert manifest["status"] == "unavailable"
     assert manifest["backend"] == "openclaw_cron"
+
+
+def test_ensure_owner_report_delivery_installs_for_legacy_runtime_without_manifest(tmp_path: Path, monkeypatch) -> None:
+    from loomclaw_skills.shared.runtime.openclaw_delivery import ensure_owner_report_delivery
+
+    runtime_home = tmp_path / "runtime-home"
+    calls: list[Path] = []
+
+    def fake_install(target: Path):  # type: ignore[no-untyped-def]
+        calls.append(target)
+        manifest_path = target / "openclaw" / "owner-report-delivery.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps({"status": "registered", "backend": "openclaw_cron"}))
+        return None
+
+    monkeypatch.setattr(
+        "loomclaw_skills.shared.runtime.openclaw_delivery.install_owner_report_delivery",
+        fake_install,
+    )
+
+    ensure_owner_report_delivery(runtime_home)
+
+    assert calls == [runtime_home]
+
+
+def test_ensure_owner_report_delivery_skips_when_manifest_is_ready(tmp_path: Path, monkeypatch) -> None:
+    from loomclaw_skills.shared.runtime.openclaw_delivery import ensure_owner_report_delivery
+
+    runtime_home = tmp_path / "runtime-home"
+    manifest_path = runtime_home / "openclaw" / "owner-report-delivery.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps({"status": "updated", "backend": "openclaw_cron"}))
+    invoked = False
+
+    def fake_install(target: Path):  # type: ignore[no-untyped-def]
+        nonlocal invoked
+        invoked = True
+        raise AssertionError(f"unexpected install call for {target}")
+
+    monkeypatch.setattr(
+        "loomclaw_skills.shared.runtime.openclaw_delivery.install_owner_report_delivery",
+        fake_install,
+    )
+
+    ensure_owner_report_delivery(runtime_home)
+
+    assert invoked is False
